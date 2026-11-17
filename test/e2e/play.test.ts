@@ -176,3 +176,46 @@ test("the HUD makes clear who is winning", async () => {
     await b.context().close();
   }
 }, 90000);
+
+test("each player chooses a colour in the lobby and it carries into the match", async () => {
+  const a = await open();
+  await a.fill("#name", "Ada");
+  await a.tap("#create");
+  await a.waitForSelector("#lobby:not([hidden])");
+  const code = (await a.textContent("#room-code"))!.trim();
+  const b = await open(phone, `/?room=${code}`);
+  await b.fill("#name", "Bo");
+  await b.tap("#join");
+  await a.waitForFunction(() => document.querySelector('[data-seat="1"] .seat-name')?.textContent === "Bo");
+
+  // a palette on your own seat only, with the opponent's colour unavailable
+  expect(await a.locator('[data-seat="0"] .swatch').count()).toBe(6);
+  expect(await a.locator('[data-seat="1"] .swatch').count()).toBe(0);
+  expect(await a.locator('[data-seat="0"] .swatch[data-color="teal"]').isDisabled()).toBe(true);
+  for (const box of await a.locator('[data-seat="0"] .swatch').all()) expect((await box.boundingBox())!.height).toBeGreaterThanOrEqual(30);
+
+  await a.tap('[data-seat="0"] .swatch[data-color="lime"]');
+  await b.waitForFunction(() => document.querySelector('[data-seat="0"]')?.getAttribute("data-color") === "lime");
+  expect(await b.locator('[data-seat="1"] .swatch[data-color="lime"]').isDisabled()).toBe(true);
+  await b.tap('[data-seat="1"] .swatch[data-color="rose"]');
+  await a.waitForFunction(() => document.querySelector('[data-seat="1"]')?.getAttribute("data-color") === "rose");
+  await a.waitForTimeout(300);
+  await a.screenshot({ path: `${SHOTS}/lobby-colors.png` });
+
+  await a.tap("#ready");
+  await b.waitForFunction(() => document.querySelector('[data-seat="0"]')?.classList.contains("is-ready"));
+  await b.tap("#ready");
+  for (const p of [a, b]) await p.waitForFunction(() => (window as any).__wriggle.snapshot()?.worms?.length === 6);
+
+  // the HUD and the worms' headbands use the chosen colours on both phones
+  for (const p of [a, b]) {
+    expect(await p.evaluate(() => getComputedStyle(document.querySelector(".team.t0 .team-name")!).color)).toBe("rgb(155, 216, 78)");
+    expect(await p.evaluate(() => getComputedStyle(document.querySelector(".team.t1 .team-name")!).color)).toBe("rgb(255, 92, 154)");
+    expect(await p.evaluate(() => (window as any).__wriggle.teamColors())).toEqual(["#9bd84e", "#ff5c9a"]);
+  }
+  await a.waitForTimeout(600);
+  await a.screenshot({ path: `${SHOTS}/game-colors.png` });
+  expect(errors).toEqual([]);
+  await a.context().close();
+  await b.context().close();
+}, 60000);

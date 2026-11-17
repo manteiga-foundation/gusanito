@@ -147,3 +147,46 @@ describe("lobby: Ready Player One / Ready Player Two", () => {
     expect(a.last("lobby")!.players[0]!.name.length).toBeLessThanOrEqual(16);
   });
 });
+
+describe("player colours", () => {
+  test("seats start with distinct default colours", () => {
+    const { a } = pair();
+    const l = a.last("lobby")!;
+    expect(l.players[0]!.color).toBe("coral");
+    expect(l.players[1]!.color).toBe("teal");
+  });
+
+  test("a player picks a free colour and both players see it", () => {
+    const { a, b } = pair();
+    a.send({ t: "color", color: "lime" });
+    expect(b.last("lobby")!.players[0]!.color).toBe("lime");
+  });
+
+  test("the opponent's colour and unknown colours are refused", () => {
+    const { a, b } = pair();
+    a.send({ t: "color", color: "teal" });
+    a.send({ t: "color", color: "#ff0000" });
+    expect(b.last("lobby")!.players[0]!.color).toBe("coral");
+  });
+
+  test("a joiner whose default is taken gets the first free colour", () => {
+    const rooms = new Rooms();
+    const a = client(rooms);
+    a.send({ t: "create", name: "Ada" });
+    a.send({ t: "color", color: "teal" });
+    const code = a.last("joined")!.code;
+    const b = client(rooms);
+    b.send({ t: "join", code, name: "Bo" });
+    expect(b.last("lobby")!.players[1]!.color).toBe("coral");
+  });
+
+  test("colours travel with the match start and are locked while playing", () => {
+    const { rooms, a, b, code } = pair();
+    b.send({ t: "color", color: "rose" });
+    a.send({ t: "ready", ready: true });
+    b.send({ t: "ready", ready: true });
+    expect(a.last("start")!.colors).toEqual(["coral", "rose"]);
+    a.send({ t: "color", color: "sky" });
+    expect(rooms.get(code)!.seats[0]!.color).toBe("coral");
+  });
+});

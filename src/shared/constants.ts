@@ -49,3 +49,16 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
 
 export const BOMBLET = { radius: 20, damage: 18, knock: 180, count: 5 };
 export const WEAPON_ORDER: WeaponId[] = ["rocket", "grenade", "cluster", "shotgun"];
+
+/** Team colours a player can choose in the lobby; the two players never share one. */
+export const PALETTE = {
+  coral: { label: "Coral", hex: "#ff7a59" },
+  teal: { label: "Teal", hex: "#3fc8b6" },
+  sky: { label: "Sky", hex: "#5aa9ff" },
+  lime: { label: "Lime", hex: "#9bd84e" },
+  rose: { label: "Rose", hex: "#ff5c9a" },
+  sun: { label: "Sun", hex: "#ffd447" },
+} as const;
+export type ColorId = keyof typeof PALETTE;
+export const COLOR_ORDER = Object.keys(PALETTE) as ColorId[];
+export const DEFAULT_COLORS: [ColorId, ColorId] = ["coral", "teal"];

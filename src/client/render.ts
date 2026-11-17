@@ -2,7 +2,8 @@ import { WORLD_H, WORLD_W, WORM_R } from "../shared/constants.ts";
 import type { GameEvent, ProjView, Snapshot, WormView } from "../shared/protocol.ts";
 import { Terrain } from "../shared/terrain.ts";
 
-export const TEAM = ["#ff7a59", "#3fc8b6"] as const;
+/** Team colours, replaced in place when players pick theirs in the lobby. */
+export const TEAM: [string, string] = ["#ff7a59", "#3fc8b6"];
 
 const hash = (x: number, y: number) => {
   let h = (x * 374761393 + y * 668265263) | 0;

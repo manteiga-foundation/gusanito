@@ -1,4 +1,4 @@
-import type { WeaponId } from "./constants.ts";
+import type { ColorId, WeaponId } from "./constants.ts";
 
 export type Seat = 0 | 1;
 export type Phase = "aim" | "retreat" | "settle" | "over";
@@ -15,6 +15,7 @@ export type ClientMsg =
   | { t: "create"; name: string; token?: string }
   | { t: "join"; code: string; name: string; token?: string }
   | { t: "ready"; ready: boolean }
+  | { t: "color"; color: ColorId }
   | { t: "leave" }
   | GameInput;
 
@@ -72,12 +73,13 @@ export interface LobbyPlayer {
   name: string;
   ready: boolean;
   connected: boolean;
+  color: ColorId;
 }
 
 export type ServerMsg =
   | { t: "joined"; code: string; seat: Seat; token: string }
   | { t: "lobby"; code: string; players: [LobbyPlayer | null, LobbyPlayer | null]; wins: [number, number]; playing: boolean }
-  | { t: "start"; seat: Seat; names: [string, string]; terrain: { w: number; h: number; rle: number[] } }
+  | { t: "start"; seat: Seat; names: [string, string]; colors: [ColorId, ColorId]; terrain: { w: number; h: number; rle: number[] } }
   | { t: "state"; s: Snapshot }
   | { t: "events"; list: GameEvent[] }
   | { t: "error"; reason: "full" | "not-found" | "bad-request" };

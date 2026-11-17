@@ -1,10 +1,10 @@
-import { WEAPON_ORDER, WEAPONS, type WeaponId } from "../shared/constants.ts";
+import { COLOR_ORDER, DEFAULT_COLORS, PALETTE, WEAPON_ORDER, WEAPONS, type ColorId, type WeaponId } from "../shared/constants.ts";
 import type { GameEvent, LobbyPlayer, ProjView, Seat, ServerMsg, Snapshot, WormView } from "../shared/protocol.ts";
 import { Terrain } from "../shared/terrain.ts";
 import { Sfx } from "./audio.ts";
 import { ICONS } from "./icons.ts";
 import { Net } from "./net.ts";
-import { Renderer, type View } from "./render.ts";
+import { Renderer, TEAM, type View } from "./render.ts";
 import { leadText, standings } from "./standings.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -137,6 +137,7 @@ class App {
         this.renderLobby();
         break;
       case "start":
+        this.applyColors(m.colors);
         this.startMatch(m.seat, m.names, Terrain.fromRLE(m.terrain.w, m.terrain.h, m.terrain.rle));
         break;
       case "state":
@@ -233,10 +234,47 @@ class App {
     });
   }
 
+  /** One source for team colours: CSS variables for the DOM, TEAM for the canvas. */
+  private applyColors(colors: [ColorId, ColorId]): void {
+    colors.forEach((c, i) => {
+      const hex = PALETTE[c]?.hex ?? PALETTE[DEFAULT_COLORS[i]].hex;
+      TEAM[i] = hex;
+      document.documentElement.style.setProperty(i === 0 ? "--p1" : "--p2", hex);
+    });
+  }
+
+  private renderSwatches(el: HTMLElement, mine: ColorId, theirs: ColorId | undefined, editable: boolean): void {
+    const box = el.querySelector<HTMLElement>(".swatches")!;
+    const key = editable ? `${mine}|${theirs ?? ""}` : "";
+    if (box.dataset.key === key) return;
+    box.dataset.key = key;
+    box.innerHTML = "";
+    if (!editable) return;
+    for (const id of COLOR_ORDER) {
+      const b = document.createElement("button");
+      b.className = "swatch";
+      b.dataset.color = id;
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", String(id === mine));
+      b.setAttribute("aria-label", PALETTE[id].label + (id === theirs ? " (taken)" : ""));
+      b.style.setProperty("--c", PALETTE[id].hex);
+      b.disabled = id === theirs;
+      b.addEventListener("click", () => {
+        if (id !== mine) this.net.send({ t: "color", color: id });
+        this.sfx.blip(520 + COLOR_ORDER.indexOf(id) * 60);
+      });
+      box.appendChild(b);
+    }
+  }
+
   private renderLobby(): void {
     const L = this.lobby!;
+    this.applyColors([L.players[0]?.color ?? DEFAULT_COLORS[0], L.players[1]?.color ?? DEFAULT_COLORS[1]]);
     L.players.forEach((p, i) => {
       const el = $(`.seat[data-seat="${i}"]`);
+      el.dataset.color = p?.color ?? "";
+      const theirs = L.players[1 - i]?.color;
+      this.renderSwatches(el, p?.color ?? DEFAULT_COLORS[i], theirs, !!p && i === this.seat && !L.playing);
       el.classList.toggle("empty", !p);
       el.classList.toggle("is-ready", !!p?.ready);
       el.classList.toggle("is-away", !!p && !p.connected);
@@ -645,6 +683,7 @@ class App {
       connected: () => this.net.connected,
       dropConnection: () => this.net.drop(),
       /** test and design hook: stop applying live state and show this snapshot instead */
+      teamColors: () => [...TEAM],
       preview: (s: Snapshot) => {
         this.frozen = true;
         this.prev = null;

@@ -1,4 +1,4 @@
-import { FORFEIT_SECONDS, MAX_NAME, TICK, WEAPONS, type WeaponId } from "../shared/constants.ts";
+import { COLOR_ORDER, DEFAULT_COLORS, FORFEIT_SECONDS, MAX_NAME, PALETTE, TICK, WEAPONS, type ColorId, type WeaponId } from "../shared/constants.ts";
 import { Game } from "../shared/game.ts";
 import type { ClientMsg, GameInput, LobbyPlayer, Seat, ServerMsg } from "../shared/protocol.ts";
 
@@ -19,6 +19,7 @@ interface SeatState {
   name: string;
   token: string;
   ready: boolean;
+  color: ColorId;
   conn: number | null;
   awaySeconds: number;
 }
@@ -97,6 +98,8 @@ export class Rooms {
         return this.join(conn, String(msg.code ?? "").toUpperCase(), msg.name, msg.token);
       case "ready":
         return this.setReady(conn, msg.ready === true);
+      case "color":
+        return this.setColor(conn, msg.color);
       case "leave":
         return this.detach(conn, true);
     }
@@ -193,7 +196,9 @@ export class Rooms {
 
   private seat(conn: Conn, room: Room, seat: Seat, name: string): void {
     const token = crypto.randomUUID();
-    room.seats[seat] = { name, token, ready: false, conn: conn.id, awaySeconds: 0 };
+    const taken = room.seats[1 - seat]?.color;
+    const color = DEFAULT_COLORS[seat] !== taken ? DEFAULT_COLORS[seat] : COLOR_ORDER.find((c) => c !== taken)!;
+    room.seats[seat] = { name, token, ready: false, color, conn: conn.id, awaySeconds: 0 };
     conn.room = room.code;
     conn.seat = seat;
     conn.send({ t: "joined", code: room.code, seat, token });
@@ -207,6 +212,15 @@ export class Rooms {
     room.seats[conn.seat]!.ready = ready;
     this.broadcastLobby(room);
     if (room.seats.every((s) => s && s.ready && s.conn !== null)) this.start(room);
+  }
+
+  private setColor(conn: Conn, color: unknown): void {
+    if (conn.room === undefined || conn.seat === undefined) return;
+    const room = this.rooms.get(conn.room);
+    if (!room || room.playing || typeof color !== "string" || !(color in PALETTE)) return;
+    if (room.seats[1 - conn.seat]?.color === color) return;
+    room.seats[conn.seat]!.color = color as ColorId;
+    this.broadcastLobby(room);
   }
 
   private start(room: Room): void {
@@ -224,7 +238,8 @@ export class Rooms {
 
   private sendStart(room: Room, conn: Conn, seat: Seat): void {
     const g = room.game!;
-    conn.send({ t: "start", seat, names: g.names, terrain: { w: g.terrain.w, h: g.terrain.h, rle: g.terrain.toRLE() } });
+    const colors = room.seats.map((s, i) => s?.color ?? DEFAULT_COLORS[i]) as [ColorId, ColorId];
+    conn.send({ t: "start", seat, names: g.names, colors, terrain: { w: g.terrain.w, h: g.terrain.h, rle: g.terrain.toRLE() } });
     conn.send({ t: "state", s: g.snapshot() });
   }
 
@@ -261,7 +276,7 @@ export class Rooms {
   }
 
   private lobbyPlayers(room: Room): [LobbyPlayer | null, LobbyPlayer | null] {
-    return room.seats.map((s) => (s ? { name: s.name, ready: s.ready, connected: s.conn !== null } : null)) as [LobbyPlayer | null, LobbyPlayer | null];
+    return room.seats.map((s) => (s ? { name: s.name, ready: s.ready, connected: s.conn !== null, color: s.color } : null)) as [LobbyPlayer | null, LobbyPlayer | null];
   }
 
   private broadcastLobby(room: Room): void {
