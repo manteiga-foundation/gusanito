@@ -6,7 +6,7 @@ import { startServer } from "../../src/server/server.ts";
 const SHOTS = process.env.SHOTS_DIR ?? "test-results";
 mkdirSync(SHOTS, { recursive: true });
 
-let server: ReturnType<typeof startServer>;
+let server: ReturnType<typeof startServer> | undefined;
 let browser: Browser;
 let url = "";
 const errors: string[] = [];
@@ -16,8 +16,12 @@ const phone = { ...devices["iPhone 13"], viewport: { width: 844, height: 390 }, 
 const portrait = { ...devices["iPhone 13"], viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true };
 
 beforeAll(async () => {
-  server = startServer({ port: 0, staticDir: "dist", hostname: "127.0.0.1" });
-  url = `http://127.0.0.1:${server.port}`;
+  // BASE_URL runs the same flow against a deployed instance (e.g. https://wriggle-game.fly.dev)
+  if (process.env.BASE_URL) url = process.env.BASE_URL.replace(/\/$/, "");
+  else {
+    server = startServer({ port: 0, staticDir: "dist", hostname: "127.0.0.1" });
+    url = `http://127.0.0.1:${server.port}`;
+  }
   browser = await chromium.launch();
 });
 afterAll(async () => {

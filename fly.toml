@@ -1,6 +1,6 @@
 # Rooms live in memory: run exactly one machine (deploy with --ha=false).
 app = "wriggle-game"
-primary_region = "mia"
+primary_region = "iad"
 
 [build]
 

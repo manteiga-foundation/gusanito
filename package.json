@@ -11,7 +11,9 @@
     "start": "bun src/server/main.ts",
     "check": "tsc --noEmit",
     "test": "bun test test/unit",
-    "test:e2e": "bun run build && bun test test/e2e --timeout 60000"
+    "test:e2e": "bun run build && bun test test/e2e --timeout 60000",
+    "test:live": "BASE_URL=https://wriggle-game.fly.dev SHOTS_DIR=test-results/live bun test test/e2e --timeout 90000",
+    "deploy": "fly deploy --config fly.toml --remote-only --ha=false"
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
