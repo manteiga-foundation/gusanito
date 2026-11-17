@@ -1,0 +1,21 @@
+{
+  "name": "wriggle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Two-player online artillery game with destructible terrain, wind and gravity wells. Plays on phones.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "bun run build && bun --watch src/server/main.ts",
+    "build": "bun build src/client/main.ts --outdir dist --minify --sourcemap=linked --target browser && cp public/* dist/",
+    "start": "bun src/server/main.ts",
+    "check": "tsc --noEmit",
+    "test": "bun test test/unit",
+    "test:e2e": "bun run build && bun test test/e2e --timeout 60000"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "playwright": "1.65.0",
+    "typescript": "5"
+  }
+}
