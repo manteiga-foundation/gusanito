@@ -22,7 +22,8 @@ beforeAll(async () => {
     server = startServer({ port: 0, staticDir: "dist", hostname: "127.0.0.1" });
     url = `http://127.0.0.1:${server.port}`;
   }
-  browser = await chromium.launch();
+  // HOST_RULES pins a hostname for a run whose local DNS cache is stale, e.g. "MAP gusanito.manteiga.org 66.241.124.50"
+  browser = await chromium.launch({ args: process.env.HOST_RULES ? [`--host-resolver-rules=${process.env.HOST_RULES}`] : [] });
 });
 afterAll(async () => {
   await browser?.close();
