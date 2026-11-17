@@ -229,7 +229,7 @@ class App {
     $(".home-panel .join-row").hidden = this.invited;
     $("#create-instead").hidden = !this.invited;
     // the server names the host in the page's preview title
-    const host = document.querySelector('meta[property="og:title"]')?.getAttribute("content")?.match(/^(.+) invites you to Wriggle$/)?.[1];
+    const host = document.querySelector('meta[property="og:title"]')?.getAttribute("content")?.match(/^(.+) invites you to Gusanito$/)?.[1];
     $("#home-eyebrow").textContent = this.invited && host ? `${host} invites you` : this.invited ? "You are invited" : "Two-player artillery";
   }
 
@@ -244,7 +244,7 @@ class App {
       const me = this.seat !== null ? this.lobby?.players[this.seat]?.name : null;
       const code = this.session?.code ?? "";
       try {
-        await navigator.share({ title: "Wriggle", text: `${me ? `${me} invites you to` : "Join"} a Wriggle match (code ${code}).`, url: this.inviteUrl() });
+        await navigator.share({ title: "Gusanito", text: `${me ? `${me} invites you to` : "Join"} a Gusanito match (code ${code}).`, url: this.inviteUrl() });
       } catch {
         /* share sheet dismissed */
       }

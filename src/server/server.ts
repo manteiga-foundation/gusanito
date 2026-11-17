@@ -22,7 +22,7 @@ export interface ServerOptions {
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const GENERIC = {
-  title: "Wriggle: two-player artillery",
+  title: "Gusanito: two-player artillery",
   description: "Destructible ground, shifting wind and gravity wells that bend every shot. Invite a friend and play in the browser. A Manteiga Foundation game.",
 };
 
@@ -30,7 +30,7 @@ const GENERIC = {
 export function renderPage(template: string, origin: string, room: string | null, host: string | null): string {
   const invite = room && host;
   const fields: Record<string, string> = {
-    title: invite ? `${host} invites you to Wriggle` : GENERIC.title,
+    title: invite ? `${host} invites you to Gusanito` : GENERIC.title,
     description: invite
       ? `Tap to join match ${room}. Two players, destructible ground, wind and gravity wells. A Manteiga Foundation game.`
       : GENERIC.description,

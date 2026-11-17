@@ -1,4 +1,4 @@
-# Wriggle
+# Gusanito
 
 Two-player online artillery in the spirit of Worms: destructible 2D ground, wind that changes every
 turn, and gravity wells that bend every projectile. Plays in the browser on phones and desktops.

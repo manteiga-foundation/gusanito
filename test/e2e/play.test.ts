@@ -47,6 +47,8 @@ test("home screen offers create and join on a phone", async () => {
   await expect(p.locator("#join").isVisible()).resolves.toBe(true);
   const box = (await p.locator("#create").boundingBox())!;
   expect(box.height).toBeGreaterThanOrEqual(44);
+  expect(await p.textContent(".wordmark")).toBe("Gusanito");
+  expect(await p.title()).toContain("Gusanito");
   await p.screenshot({ path: `${SHOTS}/home-landscape.png` });
   // the death cues render, are audible, and the own-worm one is the longer, lower one
   const other = await p.evaluate(() => (window as any).__wriggle.renderCue("death"));
@@ -114,6 +116,7 @@ test("two phones meet in the Ready Player One / Two lobby and play at the same t
   const [fa, fb] = [await fireAt(a), await fireAt(b)];
   await a.mouse.move(fa.x, fa.y);
   await b.mouse.move(fb.x, fb.y);
+  const heldFrom = Date.now();
   await Promise.all([a.mouse.down(), b.mouse.down()]);
   await a.waitForTimeout(650);
   const charging = await a.locator("#fire").evaluate((e) => ({ on: e.classList.contains("charging"), c: Number(getComputedStyle(e).getPropertyValue("--charge")) }));
@@ -122,9 +125,11 @@ test("two phones meet in the Ready Player One / Two lobby and play at the same t
   expect(charging.c).toBeLessThan(0.9);
   await a.screenshot({ path: `${SHOTS}/fire-charging.png` });
   await Promise.all([a.mouse.up(), b.mouse.up()]);
+  const heldMs = Date.now() - heldFrom;
+  // power tracks how long Fire was held (the screenshot above lengthens the hold on a busy machine)
   const pa = await a.evaluate(() => (window as any).__wriggle.lastFirePower());
-  expect(pa).toBeGreaterThan(0.35);
-  expect(pa).toBeLessThan(0.85);
+  expect(pa).toBeGreaterThan(650 / 1300 - 0.05);
+  expect(pa).toBeLessThanOrEqual(Math.min(1, heldMs / 1300 + 0.05));
   await a.waitForFunction(() => {
     const s = (window as any).__wriggle.snapshot();
     return new Set(s.proj.map((p: any) => p.team)).size === 2;
