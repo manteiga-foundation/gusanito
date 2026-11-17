@@ -349,7 +349,7 @@ export class Game {
       if (this.collides(w.x, ny)) {
         if (w.vy > 0) {
           const impact = w.vy;
-          if (impact > FALL_SAFE_SPEED) this.hurt(w, Math.round((impact - FALL_SAFE_SPEED) / 8));
+          if (impact > FALL_SAFE_SPEED) this.hurt(w, Math.round((impact - FALL_SAFE_SPEED) / 6));
           if (impact > 160) {
             w.vy = -impact * 0.25;
             w.vx *= 0.6;

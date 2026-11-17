@@ -42,13 +42,13 @@ export interface WeaponSpec {
 }
 
 export const WEAPONS: Record<WeaponId, WeaponSpec> = {
-  rocket: { id: "rocket", label: "Rocket", radius: 42, damage: 48, knock: 340, wind: true, fuse: 0, ammo: -1, reload: 1.6 },
-  grenade: { id: "grenade", label: "Grenade", radius: 44, damage: 46, knock: 330, wind: false, fuse: 3, ammo: -1, reload: 1.6 },
-  cluster: { id: "cluster", label: "Cluster", radius: 32, damage: 30, knock: 250, wind: false, fuse: 3, ammo: 2, reload: 2.4 },
-  shotgun: { id: "shotgun", label: "Shotgun", radius: 12, damage: 25, knock: 160, wind: false, fuse: 0, ammo: -1, reload: 0.9 },
+  rocket: { id: "rocket", label: "Rocket", radius: 42, damage: 65, knock: 340, wind: true, fuse: 0, ammo: -1, reload: 1.6 },
+  grenade: { id: "grenade", label: "Grenade", radius: 44, damage: 62, knock: 330, wind: false, fuse: 3, ammo: -1, reload: 1.6 },
+  cluster: { id: "cluster", label: "Cluster", radius: 32, damage: 40, knock: 250, wind: false, fuse: 3, ammo: 2, reload: 2.4 },
+  shotgun: { id: "shotgun", label: "Shotgun", radius: 12, damage: 34, knock: 160, wind: false, fuse: 0, ammo: -1, reload: 0.9 },
 };
 
-export const BOMBLET = { radius: 20, damage: 18, knock: 180, count: 5 };
+export const BOMBLET = { radius: 20, damage: 24, knock: 180, count: 5 };
 export const WEAPON_ORDER: WeaponId[] = ["rocket", "grenade", "cluster", "shotgun"];
 
 /** Team colours a player can choose in the lobby; the two players never share one. */

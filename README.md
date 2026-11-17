@@ -42,7 +42,7 @@ A dropped connection pauses the match; reopening the page rejoins the same seat.
 | Weapon | Weapon button opens the tray | 1 to 4 |
 | Look around | Two-finger drag and pinch | Mouse wheel zooms |
 
-Weapons and reloads: Rocket (wind-affected, explodes on impact, 1.6 s), Grenade (bounces, 3 s fuse,
+Weapons and reloads (a direct rocket or grenade takes about half a worm): Rocket (wind-affected, explodes on impact, 1.6 s), Grenade (bounces, 3 s fuse,
 1.6 s), Cluster (splits into five bomblets, two per match, 2.4 s), Shotgun (instant hitscan, 0.9 s).
 
 ## Requirements

@@ -179,6 +179,17 @@ describe("weapons", () => {
     expect(team(g, 1)[0].hp).toBe(100);
   });
 
+  test("worms die quickly: a direct rocket takes about half a worm, three shotgun hits finish one", () => {
+    const g = flatGame({ spawns: [[300], [380]] });
+    g.handle(0, { t: "aim", angle: 0 });
+    g.handle(0, { t: "fire", power: 1 });
+    g.run(0.3);
+    const lost = 100 - team(g, 1)[0].hp;
+    expect(lost).toBeGreaterThanOrEqual(45);
+    expect(lost).toBeLessThan(100);
+    expect(Math.ceil(100 / WEAPONS.shotgun.damage)).toBeLessThanOrEqual(3);
+  });
+
   test("a rocket explodes on contact with an enemy worm", () => {
     const g = flatGame({ spawns: [[300], [380]] });
     g.handle(0, { t: "aim", angle: 0 });
