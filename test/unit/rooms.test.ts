@@ -78,13 +78,14 @@ describe("lobby: Ready Player One / Ready Player Two", () => {
     a.send({ t: "ready", ready: true });
     b.send({ t: "ready", ready: true });
     const g = rooms.get(code)!.game!;
-    const x0 = g.activeWorm().x;
-    b.send({ t: "move", dir: 1 });
-    rooms.tick(0.5);
-    expect(g.activeWorm().x).toBe(x0);
+    rooms.tick(3.1); // countdown
+    const x0 = g.activeWorm(0).x;
+    const x1 = g.activeWorm(1).x;
     a.send({ t: "move", dir: 1 });
+    b.send({ t: "move", dir: -1 });
     rooms.tick(0.5);
-    expect(g.activeWorm().x).not.toBe(x0);
+    expect(g.activeWorm(0).x).toBeGreaterThan(x0);
+    expect(g.activeWorm(1).x).toBeLessThan(x1);
     expect(a.count("state")).toBeGreaterThan(3);
     expect(b.last("state")!.s.worms.length).toBe(6);
   });
@@ -126,8 +127,7 @@ describe("lobby: Ready Player One / Ready Player Two", () => {
     b.send({ t: "ready", ready: true });
     const g = rooms.get(code)!.game!;
     for (const w of g.worms) if (w.team === 1) w.y = 2000;
-    a.send({ t: "skip" });
-    rooms.tick(3);
+    rooms.tick(1);
     expect(g.winner).toBe(0);
     const l = a.last("lobby")!;
     expect(l.players[0]!.ready).toBe(false);

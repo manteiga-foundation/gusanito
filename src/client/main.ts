@@ -1,4 +1,4 @@
-import { COLOR_ORDER, DEFAULT_COLORS, PALETTE, WEAPON_ORDER, WEAPONS, type ColorId, type WeaponId } from "../shared/constants.ts";
+import { COLOR_ORDER, DEFAULT_COLORS, PALETTE, WATER_Y, WEAPON_ORDER, WEAPONS, type ColorId, type WeaponId } from "../shared/constants.ts";
 import type { GameEvent, LobbyPlayer, ProjView, Seat, ServerMsg, Snapshot, WormView } from "../shared/protocol.ts";
 import { Terrain } from "../shared/terrain.ts";
 import { Sfx } from "./audio.ts";
@@ -33,7 +33,7 @@ class App {
   private myPower = 0.65;
   private aimSentAt = 0;
   private aiming = false;
-  private lastTurn = -1;
+  private lastPhase: Snapshot["phase"] | null = null;
   private overShown = false;
   private wantsJoin: { kind: "create" | "join"; code?: string } | null = null;
   private pointers = new Map<number, { x: number; y: number }>();
@@ -332,7 +332,7 @@ class App {
     this.overShown = false;
     this.prev = null;
     this.cur = null;
-    this.lastTurn = -1;
+    this.lastPhase = null;
     this.frozen = false;
     this.lastLeader = undefined;
     this.r.setTerrain(terrain);
@@ -345,54 +345,63 @@ class App {
     void this.requestWakeLock();
   }
 
-  private isMyTurn(s: Snapshot | undefined = this.cur?.s): boolean {
-    return !!s && this.inMatch && s.team === this.seat && (s.phase === "aim" || s.phase === "retreat");
+  /** Both players act at once: you can act whenever the match is on and your worm stands. */
+  private canAct(s: Snapshot | undefined = this.cur?.s): boolean {
+    if (!s || !this.inMatch || this.seat === null || s.phase === "over") return false;
+    const me = s.worms.find((w) => w.id === s.seats[this.seat!].active);
+    return !!me && me.alive;
+  }
+
+  private mySeat(s: Snapshot) {
+    return s.seats[this.seat ?? 0];
   }
 
   private onState(s: Snapshot): void {
     if (!this.inMatch) return;
     this.r.wind = s.wind;
-    const mine = this.isMyTurn(s);
-    if (s.turn !== this.lastTurn && s.phase === "aim") {
-      this.lastTurn = s.turn;
-      this.myAim = s.aim;
-      this.r.manualUntil = 0;
-      if (s.team === this.seat) {
-        this.sfx.turn();
-        navigator.vibrate?.(35);
-      }
+    const me = this.mySeat(s);
+    const live = this.canAct(s);
+    if (this.lastPhase === null) this.myAim = me.aim;
+    if (this.lastPhase === "countdown" && s.phase === "play") {
+      this.sfx.turn();
+      navigator.vibrate?.(35);
     }
-    if (mine && !this.aiming && performance.now() - this.aimSentAt > 400) this.myAim = s.aim;
+    this.lastPhase = s.phase;
+    if (!this.aiming && performance.now() - this.aimSentAt > 400) this.myAim = me.aim;
 
     const label = $("#turn-label");
-    label.classList.toggle("mine", mine);
-    label.textContent = s.phase === "over" ? "" : s.team === this.seat ? "Your turn" : `${this.names[s.team]}'s turn`;
-    const t = s.phase === "aim" ? s.timer : s.phase === "retreat" ? s.retreat : null;
-    $("#timer").textContent = t === null ? "" : String(t);
-    const clock = $(".clock");
-    clock.style.setProperty("--tone", s.team === 0 ? "var(--p1)" : "var(--p2)");
-    clock.classList.toggle("urgent", s.phase === "aim" && s.timer <= 5);
+    const rising = s.phase === "play" && s.waterY < WATER_Y;
+    label.textContent = s.phase === "countdown" ? `Starting in ${s.countdown}` : rising ? "Water rising" : "";
+    label.hidden = label.textContent === "";
+    label.classList.toggle("mine", s.phase === "countdown");
+    label.classList.toggle("warn", rising);
+    $("#timer").textContent = `${Math.floor(s.clock / 60)}:${String(s.clock % 60).padStart(2, "0")}`;
+    $(".clock").classList.toggle("urgent", s.phase === "play" && s.clock <= 30);
+    const fireBtn = $("#fire");
+    fireBtn.classList.toggle("reloading", me.reload > 0);
+    fireBtn.style.setProperty("--reload", String(me.reloadOf > 0 ? me.reload / me.reloadOf : 0));
     const wind = $(".wind-bar i");
     const pct = Math.abs(s.wind) * 50;
     wind.style.width = `${pct}%`;
     wind.style.left = s.wind >= 0 ? "50%" : `${50 - pct}%`;
     this.renderStandings(s);
     const hud = $("#hud");
-    hud.classList.toggle("idle", !mine);
-    hud.classList.toggle("fired", mine && s.phase === "retreat");
-    const spec = WEAPONS[s.weapon];
+    hud.classList.toggle("idle", !live);
+    hud.classList.toggle("counting", s.phase === "countdown");
     const wbtn = $("#weapon");
-    if (wbtn.dataset.w !== s.weapon) {
-      wbtn.innerHTML = `${ICONS[s.weapon]}<span>${spec.label}</span>`;
-      wbtn.dataset.w = s.weapon;
+    if (wbtn.dataset.w !== me.weapon) {
+      wbtn.innerHTML = `${ICONS[me.weapon]}<span>${WEAPONS[me.weapon].label}</span>`;
+      wbtn.dataset.w = me.weapon;
     }
-    if (!mine) $("#tray").hidden = true;
+    if (!live) $("#tray").hidden = true;
 
     if (s.phase === "over" && !this.overShown) {
       this.overShown = true;
+      const timeUp = s.clock <= 0;
       setTimeout(() => {
         $("#banner").hidden = false;
         $("#banner-title").textContent = s.winner === -1 ? "A draw" : s.winner === this.seat ? "You win" : `${this.names[s.winner as Seat]} wins`;
+        $("#banner-sub").textContent = timeUp ? "Decided on health at the final whistle" : "Last team standing";
       }, 1200);
     }
   }
@@ -429,6 +438,10 @@ class App {
     else if (e.t === "fire") this.sfx.fire();
     else if (e.t === "drown" || e.t === "splash") this.sfx.splash();
     else if (e.t === "hurt" && worms.find((w) => w.id === e.id)?.team === this.seat) navigator.vibrate?.(60);
+    else if (e.t === "switch" && e.seat === this.seat) {
+      this.sfx.blip(700, 0.06, 0.08);
+      this.r.manualUntil = 0;
+    }
   }
 
   private renderTray(s: Snapshot): void {
@@ -436,9 +449,10 @@ class App {
     grid.innerHTML = "";
     for (const id of WEAPON_ORDER) {
       const b = document.createElement("button");
-      b.className = "tray-item" + (s.weapon === id ? " on" : "");
+      const me = this.mySeat(s);
+      b.className = "tray-item" + (me.weapon === id ? " on" : "");
       b.dataset.weapon = id;
-      const ammo = s.ammo[id];
+      const ammo = me.ammo[id];
       b.disabled = ammo === 0;
       b.innerHTML = `${ICONS[id]}<span>${WEAPONS[id].label}</span>${ammo >= 0 ? `<span class="ammo">x${ammo}</span>` : ""}`;
       b.addEventListener("click", () => this.chooseWeapon(id));
@@ -500,10 +514,6 @@ class App {
       tray.hidden = !tray.hidden;
       if (!tray.hidden && this.cur) this.renderTray(this.cur.s);
     });
-    $("#skip").addEventListener("click", () => {
-      this.net.send({ t: "skip" });
-      $("#tray").hidden = true;
-    });
     $("#rematch").addEventListener("click", () => {
       $("#banner").hidden = true;
       this.inMatch = false;
@@ -515,7 +525,8 @@ class App {
   }
 
   private fire(power: number): void {
-    if (!this.isMyTurn() || this.cur?.s.phase !== "aim") return;
+    const s = this.cur?.s;
+    if (!s || s.phase !== "play" || !this.canAct(s) || this.mySeat(s).reload > 0) return;
     this.net.send({ t: "aim", angle: this.myAim });
     this.net.send({ t: "fire", power });
     $("#tray").hidden = true;
@@ -531,7 +542,7 @@ class App {
   // ---------- canvas gestures ----------
   private activeWorm(): WormView | undefined {
     const v = this.viewNow();
-    return v?.worms.find((w) => w.id === v.snap.active);
+    return v && this.seat !== null ? v.worms.find((w) => w.id === v.snap.seats[this.seat!].active) : undefined;
   }
 
   private aimFrom(x: number, y: number): void {
@@ -561,7 +572,7 @@ class App {
         this.aiming = false;
         const [a, b] = [...this.pointers.values()];
         this.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
-      } else if (this.pointers.size === 1 && this.isMyTurn() && this.cur?.s.phase === "aim") {
+      } else if (this.pointers.size === 1 && this.canAct()) {
         this.aiming = true;
         this.aimFrom(e.clientX, e.clientY);
       }
@@ -664,16 +675,19 @@ class App {
       const o = pp.get(p.id);
       return o ? { ...p, x: lerp(o.x, p.x), y: lerp(o.y, p.y) } : p;
     });
-    const mine = this.isMyTurn(cur.s);
+    const live = this.canAct(cur.s);
     const charging = this.charge !== null ? Math.min(1, (performance.now() - this.charge) / 1400) : null;
+    const aims: [number, number] = [cur.s.seats[0].aim, cur.s.seats[1].aim];
+    if (this.seat !== null) aims[this.seat] = this.myAim;
     return {
       snap: cur.s,
       worms,
       proj,
       names: this.names,
-      aim: mine ? this.myAim : cur.s.aim,
-      power: mine && cur.s.phase === "aim" ? charging ?? this.myPower : null,
-      mine,
+      seat: this.seat,
+      aims,
+      actives: [cur.s.seats[0].active, cur.s.seats[1].active],
+      power: live ? charging ?? this.myPower : null,
     };
   }
 
@@ -681,8 +695,10 @@ class App {
   private frame(dt: number): void {
     const v = this.viewNow();
     if (v) {
-      const p = v.proj[0];
-      const w = v.worms.find((x) => x.id === v.snap.active);
+      // follow my latest shot while it flies, otherwise my worm
+      const mine = v.proj.filter((q) => q.team === this.seat && q.k !== "bomblet");
+      const p = mine[mine.length - 1];
+      const w = this.activeWorm();
       if (p) this.r.follow(p.x, p.y, dt, 5);
       else if (w) this.r.follow(w.x, w.y, dt);
       this.r.draw(dt, v, v.snap.wells, v.snap.waterY);

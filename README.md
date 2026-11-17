@@ -17,9 +17,12 @@ A Manteiga Foundation game.
 2. The other player opens the link or enters the code and taps **Join**.
 3. The lobby shows **Ready Player One** and **Ready Player Two**. Each player picks a team colour
    (six options; the two players never share one). The match starts when both are ready.
-4. Teams of three worms alternate turns (45 s each). After firing there are 3 s to retreat.
-5. The last team with a worm standing wins. Both players return to the lobby for a rematch; the
-   score carries over.
+4. After a 3-second countdown both players play at the same time. Each controls one of their three
+   worms; firing hands control straight to their next worm while the weapon reloads (the Fire
+   button refills). Wind shifts every 15 seconds and the gravity wells drift.
+5. A match lasts 3 minutes and the water rises during the last minute. The last team with a worm
+   standing wins; at the final whistle the team with more health wins. Both players return to the
+   lobby for a rematch; the score carries over.
 
 During play the top of the screen shows who is winning: each team's remaining health and worms
 standing, a crown on the leader, and a caption such as "You lead by 170". Two treatments exist,
@@ -37,10 +40,10 @@ A dropped connection pauses the match; reopening the page rejoins the same seat.
 | Aim and power | Drag on the field: direction aims, distance from the worm sets power | Up / Down or W / S aims; hold Space to charge, release to fire |
 | Fire | Fire button | Space |
 | Weapon | Weapon button opens the tray | 1 to 4 |
-| Look around | Drag (when not aiming), pinch to zoom | Mouse wheel zooms |
+| Look around | Two-finger drag and pinch | Mouse wheel zooms |
 
-Weapons: Rocket (wind-affected, explodes on impact), Grenade (bounces, 3 s fuse), Cluster (splits
-into five bomblets, two per match), Shotgun (two hitscan shots). After turn 24 the water rises.
+Weapons and reloads: Rocket (wind-affected, explodes on impact, 1.6 s), Grenade (bounces, 3 s fuse,
+1.6 s), Cluster (splits into five bomblets, two per match, 2.4 s), Shotgun (instant hitscan, 0.9 s).
 
 ## Requirements
 

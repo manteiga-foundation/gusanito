@@ -1,5 +1,5 @@
 import { WORLD_H, WORLD_W, WORM_R } from "../shared/constants.ts";
-import type { GameEvent, ProjView, Snapshot, WormView } from "../shared/protocol.ts";
+import type { GameEvent, ProjView, Seat, Snapshot, WormView } from "../shared/protocol.ts";
 import { Terrain } from "../shared/terrain.ts";
 
 /** Team colours, replaced in place when players pick theirs in the lobby. */
@@ -139,11 +139,14 @@ export interface View {
   worms: WormView[];
   proj: ProjView[];
   names: [string, string];
-  /** aim shown for the active worm (local while aiming on your own turn) */
-  aim: number;
-  /** 0..1 power while aiming on your own turn, null otherwise */
+  /** the reader's seat (null for spectators) */
+  seat: Seat | null;
+  /** each player's aim; the reader's own is local so it never lags */
+  aims: [number, number];
+  /** each player's controlled worm */
+  actives: [number, number];
+  /** 0..1 power for the reader's own shot, null when they cannot act */
   power: number | null;
-  mine: boolean;
 }
 
 export class Renderer {
@@ -490,7 +493,8 @@ export class Renderer {
 
   private drawWorm(w: WormView, v: View): void {
     const c = this.ctx;
-    const active = w.id === v.snap.active && v.snap.phase !== "over";
+    const active = v.actives[w.team] === w.id && v.snap.phase !== "over";
+    const mine = w.team === v.seat;
     if (!w.alive) {
       if (w.y > this.waterY) return;
       c.fillStyle = "#c9c2d6";
@@ -506,7 +510,7 @@ export class Renderer {
       return;
     }
     const f = w.facing;
-    const aim = active ? v.aim : f === 1 ? -0.3 : Math.PI + 0.3;
+    const aim = active ? v.aims[w.team] : f === 1 ? -0.3 : Math.PI + 0.3;
     const breathe = Math.sin(this.time * 3 + w.id) * 0.6;
     // tail segments
     const skin = c.createLinearGradient(w.x, w.y - WORM_R, w.x, w.y + WORM_R);
@@ -545,7 +549,7 @@ export class Renderer {
     c.closePath();
     c.fill();
     // weapon
-    if (active && (v.snap.phase === "aim")) {
+    if (active) {
       c.save();
       c.translate(w.x, w.y + 1);
       c.rotate(aim);
@@ -572,10 +576,11 @@ export class Renderer {
       c.arc(cx + ex * 1.1, cy + ey * 1.1, 1.2, 0, Math.PI * 2);
       c.fill();
     }
-    if (active && v.snap.phase === "aim") {
+    if (active) {
       const R = 58;
       const cx = w.x + Math.cos(aim) * R;
       const cy = w.y + Math.sin(aim) * R;
+      c.globalAlpha = mine ? 1 : 0.55;
       c.strokeStyle = "rgba(255,244,230,0.5)";
       c.lineWidth = 1.2 / this.cam.zoom;
       c.setLineDash([3, 5]);
@@ -597,7 +602,8 @@ export class Renderer {
       c.moveTo(cx, cy + 3);
       c.lineTo(cx, cy + 10);
       c.stroke();
-      if (v.power !== null) {
+      c.globalAlpha = 1;
+      if (mine && v.power !== null) {
         const n = 12;
         for (let i = 0; i < n; i++) {
           const on = i / n < v.power;
@@ -737,7 +743,7 @@ export class Renderer {
       c.fill();
       c.fillStyle = TEAM[w.team];
       c.fillText(label, s.x, y + 0.5);
-      if (w.id === v.snap.active && v.snap.phase === "aim") {
+      if (v.actives[w.team] === w.id && v.snap.phase !== "over") {
         const bob = Math.sin(this.time * 5) * 3;
         c.fillStyle = TEAM[w.team];
         c.beginPath();

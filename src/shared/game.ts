@@ -1,9 +1,9 @@
 import {
-  BOMBLET, FALL_SAFE_SPEED, GRAVITY, JUMP_VX, JUMP_VY, MAX_POWER, RETREAT_SECONDS, SETTLE_MIN_SECONDS,
-  STEP_UP, SUDDEN_DEATH_RISE, SUDDEN_DEATH_TURN, TICK, TURN_SECONDS, WALK_SPEED, WATER_Y, WEAPONS,
-  WELL_CORE, WELL_G, WELL_SOFT, WIND_ACCEL, WORLD_W, WORM_R, type WeaponId,
+  BOMBLET, COUNTDOWN_SECONDS, FALL_SAFE_SPEED, GRAVITY, JUMP_VX, JUMP_VY, MATCH_SECONDS, MAX_POWER, RISE_LAST_SECONDS,
+  RISE_SPEED, STEP_UP, TICK, WALK_SPEED, WATER_Y, WEAPON_ORDER, WEAPONS, WELL_CORE, WELL_G, WELL_SOFT, WIND_ACCEL,
+  WIND_SECONDS, WORLD_W, WORM_R, type WeaponId,
 } from "./constants.ts";
-import type { GameEvent, GameInput, Phase, ProjView, Seat, Snapshot } from "./protocol.ts";
+import type { GameEvent, GameInput, Phase, ProjView, Seat, SeatView, Snapshot } from "./protocol.ts";
 import { rng } from "./rng.ts";
 import { Terrain } from "./terrain.ts";
 
@@ -23,6 +23,7 @@ export interface Worm {
 interface Projectile {
   id: number;
   k: ProjView["k"];
+  team: Seat;
   x: number;
   y: number;
   vx: number;
@@ -46,11 +47,26 @@ export interface GameOptions {
   /** x positions per team; worms are dropped onto the ground there */
   spawns?: [number[], number[]];
   wells?: Well[];
-  /** fixed wind for every turn (tests); random per turn when omitted */
+  /** fixed wind for the whole match (tests); shifts every WIND_SECONDS when omitted */
   wind?: number;
+  /** opening countdown in seconds (default COUNTDOWN_SECONDS) */
+  countdown?: number;
+  /** match length in seconds (default MATCH_SECONDS) */
+  matchSeconds?: number;
 }
 
-const BLAST_FOR: Record<Exclude<ProjView["k"], never>, { radius: number; damage: number; knock: number }> = {
+/** Per-player control state: both players drive a worm at the same time. */
+interface Pilot {
+  active: number;
+  aim: number;
+  weapon: WeaponId;
+  move: -1 | 0 | 1;
+  reload: number;
+  reloadOf: number;
+  ammo: Record<WeaponId, number>;
+}
+
+const BLAST_FOR: Record<ProjView["k"], { radius: number; damage: number; knock: number }> = {
   rocket: WEAPONS.rocket,
   grenade: WEAPONS.grenade,
   cluster: WEAPONS.cluster,
@@ -69,29 +85,22 @@ export class Game {
   readonly wells: Well[];
   readonly names: [string, string];
   projectiles: Projectile[] = [];
-  phase: Phase = "aim";
-  turn = 1;
-  team: Seat = 0;
-  activeId = 0;
-  timer = TURN_SECONDS;
-  retreat = 0;
-  settleTime = 0;
+  phase: Phase;
+  countdown: number;
+  clock: number;
   wind = 0;
-  weapon: WeaponId = "rocket";
-  aim = -Math.PI / 4;
-  shots = 0;
-  ammo: [Record<WeaponId, number>, Record<WeaponId, number>];
+  windTimer = WIND_SECONDS;
   waterY = WATER_Y;
   winner: Seat | -1 | null = null;
   paused = false;
+  readonly pilots: [Pilot, Pilot];
 
-  private moveDir: -1 | 0 | 1 = 0;
   private events: GameEvent[] = [];
   private rand: () => number;
   private fixedWind: number | undefined;
-  private lastIdx: [number, number] = [-1, -1];
   private nextProjId = 1;
   private moveWells: boolean;
+  private wellTargets: Well[] = [];
 
   constructor(opts: GameOptions) {
     this.rand = rng(opts.seed);
@@ -106,9 +115,24 @@ export class Game {
     });
     this.moveWells = opts.wells === undefined;
     this.wells = opts.wells ? opts.wells.map((w) => ({ ...w })) : this.pickWells();
-    const fresh = (): Record<WeaponId, number> => ({ rocket: -1, grenade: -1, cluster: WEAPONS.cluster.ammo, shotgun: -1 });
-    this.ammo = [fresh(), fresh()];
-    this.beginTurn(0);
+    this.wellTargets = this.wells.map((w) => ({ ...w }));
+    this.countdown = opts.countdown ?? COUNTDOWN_SECONDS;
+    this.clock = opts.matchSeconds ?? MATCH_SECONDS;
+    this.phase = this.countdown > 0 ? "countdown" : "play";
+    const pilot = (team: Seat): Pilot => {
+      const first = this.worms.find((w) => w.team === team)!;
+      return {
+        active: first.id,
+        aim: first.facing === 1 ? -Math.PI / 4 : (-3 * Math.PI) / 4,
+        weapon: "rocket",
+        move: 0,
+        reload: 0,
+        reloadOf: 1,
+        ammo: { rocket: -1, grenade: -1, cluster: WEAPONS.cluster.ammo, shotgun: -1 },
+      };
+    };
+    this.pilots = [pilot(0), pilot(1)];
+    this.wind = this.fixedWind ?? this.rollWind(0);
   }
 
   // ---------- setup ----------
@@ -159,10 +183,17 @@ export class Game {
     return wells;
   }
 
+  private rollWind(prev: number): number {
+    let w: number;
+    do w = Math.round((this.rand() * 2 - 1) * 100) / 100;
+    while (Math.abs(w - prev) < 0.05);
+    return w;
+  }
+
   // ---------- queries ----------
 
-  activeWorm(): Worm {
-    return this.worms.find((w) => w.id === this.activeId)!;
+  activeWorm(seat: Seat): Worm {
+    return this.worms.find((w) => w.id === this.pilots[seat].active)!;
   }
 
   drainEvents(): GameEvent[] {
@@ -173,22 +204,24 @@ export class Game {
 
   snapshot(): Snapshot {
     const r1 = (n: number) => Math.round(n * 10) / 10;
+    const seat = (p: Pilot): SeatView => ({
+      active: p.active,
+      aim: Math.round(p.aim * 1000) / 1000,
+      weapon: p.weapon,
+      reload: Math.round(p.reload * 100) / 100,
+      reloadOf: p.reloadOf,
+      ammo: { ...p.ammo },
+    });
     return {
       phase: this.phase,
-      turn: this.turn,
-      team: this.team,
-      active: this.activeId,
-      timer: Math.ceil(this.timer),
-      retreat: Math.ceil(this.retreat),
+      countdown: Math.ceil(this.countdown),
+      clock: Math.ceil(this.clock),
       wind: this.wind,
       wells: this.wells.map((w) => ({ x: r1(w.x), y: r1(w.y) })),
       worms: this.worms.map((w) => ({ id: w.id, team: w.team, x: r1(w.x), y: r1(w.y), hp: Math.max(0, Math.round(w.hp)), alive: w.alive, facing: w.facing })),
-      proj: this.projectiles.map((p) => ({ id: p.id, k: p.k, x: r1(p.x), y: r1(p.y), vx: Math.round(p.vx), vy: Math.round(p.vy), fuse: Math.ceil(p.fuse) })),
-      weapon: this.weapon,
-      aim: Math.round(this.aim * 1000) / 1000,
-      shots: this.shots,
-      ammo: { ...this.ammo[this.team] },
-      waterY: this.waterY,
+      proj: this.projectiles.map((p) => ({ id: p.id, team: p.team, k: p.k, x: r1(p.x), y: r1(p.y), vx: Math.round(p.vx), vy: Math.round(p.vy), fuse: Math.ceil(p.fuse) })),
+      seats: [seat(this.pilots[0]), seat(this.pilots[1])],
+      waterY: Math.round(this.waterY * 10) / 10,
       winner: this.winner,
     };
   }
@@ -196,15 +229,18 @@ export class Game {
   // ---------- input ----------
 
   handle(seat: Seat, msg: GameInput): void {
-    if (this.phase === "over" || seat !== this.team) return;
-    const me = this.activeWorm();
-    const canAct = (this.phase === "aim" || this.phase === "retreat") && me.alive;
+    if (this.phase === "over") return;
+    // during the countdown players may aim, pick a weapon and hold a direction; acting waits for "go"
+    if (this.phase === "countdown" && (msg.t === "fire" || msg.t === "jump")) return;
+    const p = this.pilots[seat];
+    const me = this.activeWorm(seat);
+    if (!me || !me.alive) return;
     switch (msg.t) {
       case "move":
-        this.moveDir = canAct ? msg.dir : 0;
+        p.move = msg.dir;
         break;
       case "jump":
-        if (canAct && me.grounded) {
+        if (me.grounded) {
           me.vy = JUMP_VY;
           me.vx = JUMP_VX * me.facing;
           me.grounded = false;
@@ -212,18 +248,15 @@ export class Game {
         break;
       case "aim":
         if (Number.isFinite(msg.angle)) {
-          this.aim = Math.atan2(Math.sin(msg.angle), Math.cos(msg.angle));
-          me.facing = Math.cos(this.aim) >= 0 ? 1 : -1;
+          p.aim = Math.atan2(Math.sin(msg.angle), Math.cos(msg.angle));
+          me.facing = Math.cos(p.aim) >= 0 ? 1 : -1;
         }
         break;
       case "weapon":
-        if (this.phase === "aim" && this.shots === 0 && WEAPONS[msg.id] && this.ammo[this.team][msg.id] !== 0) this.weapon = msg.id;
+        if (WEAPONS[msg.id] && p.ammo[msg.id] !== 0) p.weapon = msg.id;
         break;
       case "fire":
-        if (this.phase === "aim" && me.alive) this.fire(me, Math.min(1, Math.max(0, Number(msg.power) || 0)));
-        break;
-      case "skip":
-        if (this.phase === "aim") this.toSettle();
+        if (p.reload <= 0) this.fire(seat, me, Math.min(1, Math.max(0, Number(msg.power) || 0)));
         break;
     }
   }
@@ -238,31 +271,35 @@ export class Game {
   step(): void {
     if (this.paused || this.phase === "over") return;
     const dt = TICK;
-    const me = this.activeWorm();
 
-    if (this.phase === "aim") {
-      this.timer -= dt;
-      if (this.timer <= 0) {
-        this.timer = 0;
-        this.toSettle();
+    if (this.phase === "countdown") {
+      this.countdown -= dt;
+      if (this.countdown <= 0) {
+        this.countdown = 0;
+        this.phase = "play";
       }
-    } else if (this.phase === "retreat") {
-      this.retreat -= dt;
-      if (this.retreat <= 0) {
-        this.retreat = 0;
-        this.toSettle();
+    } else {
+      this.clock = Math.max(0, this.clock - dt);
+      if (this.clock < RISE_LAST_SECONDS) this.waterY = Math.max(320, this.waterY - RISE_SPEED * dt);
+      this.windTimer -= dt;
+      if (this.windTimer <= 0) {
+        this.windTimer = WIND_SECONDS;
+        if (this.fixedWind === undefined) this.wind = this.rollWind(this.wind);
+        if (this.moveWells) this.retargetWells();
       }
-    } else if (this.phase === "settle") {
-      this.settleTime += dt;
+      if (this.moveWells) this.driftWells(dt);
+      for (const s of [0, 1] as Seat[]) {
+        const p = this.pilots[s];
+        p.reload = Math.max(0, p.reload - dt);
+        const me = this.activeWorm(s);
+        if (p.move !== 0 && me.alive && me.grounded) this.walk(s, me, p.move, dt);
+      }
     }
-
-    if (this.moveDir !== 0 && (this.phase === "aim" || this.phase === "retreat") && me.alive && me.grounded) this.walk(me, this.moveDir, dt);
 
     for (const w of this.worms) if (w.alive) this.stepWorm(w, dt);
     for (const p of [...this.projectiles]) this.stepProjectile(p, dt);
-
-    if ((this.phase === "aim" || this.phase === "retreat") && !me.alive) this.toSettle();
-    if (this.phase === "settle" && this.settleTime >= SETTLE_MIN_SECONDS && this.isCalm()) this.endTurn();
+    this.reap();
+    this.checkEnd();
   }
 
   private collides(x: number, y: number): boolean {
@@ -276,10 +313,11 @@ export class Game {
     return false;
   }
 
-  private walk(w: Worm, dir: -1 | 1, dt: number): void {
+  private walk(seat: Seat, w: Worm, dir: -1 | 1, dt: number): void {
+    const p = this.pilots[seat];
     if (w.facing !== dir) {
       w.facing = dir;
-      this.aim = Math.atan2(Math.sin(Math.PI - this.aim), Math.cos(Math.PI - this.aim));
+      p.aim = Math.atan2(Math.sin(Math.PI - p.aim), Math.cos(Math.PI - p.aim));
     }
     const nx = w.x + dir * WALK_SPEED * dt;
     for (let lift = 0; lift <= STEP_UP; lift++) {
@@ -334,31 +372,49 @@ export class Game {
     }
   }
 
-  private fire(me: Worm, power: number): void {
-    const spec = WEAPONS[this.weapon];
-    const dx = Math.cos(this.aim);
-    const dy = Math.sin(this.aim);
-    this.moveDir = 0;
-    if (this.ammo[this.team][this.weapon] > 0) this.ammo[this.team][this.weapon]--;
-    this.events.push({ t: "fire", weapon: this.weapon, x: me.x, y: me.y });
+  private fire(seat: Seat, me: Worm, power: number): void {
+    const p = this.pilots[seat];
+    const spec = WEAPONS[p.weapon];
+    const dx = Math.cos(p.aim);
+    const dy = Math.sin(p.aim);
+    if (p.ammo[p.weapon] > 0) p.ammo[p.weapon]--;
+    p.reload = spec.reload;
+    p.reloadOf = spec.reload;
+    this.events.push({ t: "fire", weapon: p.weapon, x: me.x, y: me.y });
 
-    if (this.weapon === "shotgun") {
-      this.hitscan(me, dx, dy);
-      this.shots++;
-      if (this.shots >= spec.shots) this.toRetreat();
-      return;
+    if (p.weapon === "shotgun") this.hitscan(me, dx, dy);
+    else {
+      const sx = me.x + dx * (WORM_R + 4);
+      const sy = me.y + dy * (WORM_R + 4);
+      const speed = Math.max(0.05, power) * MAX_POWER;
+      const proj: Projectile = {
+        id: this.nextProjId++, k: p.weapon as Projectile["k"], team: seat, x: sx, y: sy, vx: dx * speed, vy: dy * speed,
+        fuse: spec.fuse, owner: me.id, age: 0, resting: false,
+      };
+      if (this.terrain.solid(sx, sy)) this.explode(proj);
+      else this.projectiles.push(proj);
     }
-    this.shots++;
-    const sx = me.x + dx * (WORM_R + 4);
-    const sy = me.y + dy * (WORM_R + 4);
-    const speed = Math.max(0.05, power) * MAX_POWER;
-    const p: Projectile = {
-      id: this.nextProjId++, k: this.weapon as Projectile["k"], x: sx, y: sy, vx: dx * speed, vy: dy * speed,
-      fuse: spec.fuse, owner: me.id, age: 0, resting: false,
-    };
-    if (this.terrain.solid(sx, sy)) this.explode(p);
-    else this.projectiles.push(p);
-    this.toRetreat();
+    if (p.ammo[p.weapon] === 0) p.weapon = WEAPON_ORDER.find((w) => p.ammo[w] !== 0)!;
+    p.move = 0;
+    this.switchWorm(seat);
+  }
+
+  /** Hand the player's control to their next living worm (wrapping); stays put when it is the last one. */
+  private switchWorm(seat: Seat): void {
+    const p = this.pilots[seat];
+    const roster = this.worms.filter((w) => w.team === seat);
+    const at = roster.findIndex((w) => w.id === p.active);
+    for (let i = 1; i <= roster.length; i++) {
+      const w = roster[(at + i) % roster.length];
+      if (w.alive) {
+        if (w.id !== p.active) {
+          p.active = w.id;
+          w.facing = Math.cos(p.aim) >= 0 ? 1 : -1;
+          this.events.push({ t: "switch", seat, active: w.id });
+        }
+        return;
+      }
+    }
   }
 
   private hitscan(me: Worm, dx: number, dy: number): void {
@@ -477,7 +533,7 @@ export class Game {
       for (let i = 0; i < BOMBLET.count; i++) {
         const spread = (i / (BOMBLET.count - 1) - 0.5) * 2;
         this.projectiles.push({
-          id: this.nextProjId++, k: "bomblet", x: p.x, y: p.y - 6,
+          id: this.nextProjId++, k: "bomblet", team: p.team, x: p.x, y: p.y - 6,
           vx: spread * 130 + (this.rand() - 0.5) * 30, vy: -170 - this.rand() * 90,
           fuse: 0, owner: -1, age: 0, resting: false,
         });
@@ -510,24 +566,8 @@ export class Game {
     this.events.push({ t: "hurt", id: w.id, amount });
   }
 
-  // ---------- turn flow ----------
-
-  private toRetreat(): void {
-    this.phase = "retreat";
-    this.retreat = RETREAT_SECONDS;
-  }
-
-  private toSettle(): void {
-    this.phase = "settle";
-    this.settleTime = 0;
-    this.moveDir = 0;
-  }
-
-  private isCalm(): boolean {
-    return this.projectiles.length === 0 && this.worms.every((w) => !w.alive || w.grounded);
-  }
-
-  private endTurn(): void {
+  /** Worms out of health die at once; a player whose worm fell takes over the next one. */
+  private reap(): void {
     for (const w of this.worms) {
       if (w.alive && w.hp <= 0) {
         w.alive = false;
@@ -535,60 +575,50 @@ export class Game {
         this.events.push({ t: "die", id: w.id });
       }
     }
+    for (const s of [0, 1] as Seat[]) if (!this.activeWorm(s).alive) this.switchWorm(s);
+  }
+
+  private checkEnd(): void {
+    if (this.phase === "over") return;
     const alive = [0, 1].map((t) => this.worms.some((w) => w.alive && w.team === t));
-    if (!alive[0] || !alive[1]) {
-      this.phase = "over";
-      this.winner = alive[0] ? 0 : alive[1] ? 1 : -1;
-      return;
-    }
-    this.turn++;
-    if (this.turn > SUDDEN_DEATH_TURN) this.waterY = Math.max(300, this.waterY - SUDDEN_DEATH_RISE);
-    if (this.moveWells) this.driftWells();
-    this.beginTurn((1 - this.team) as Seat);
-  }
-
-  private driftWells(): void {
-    for (const w of this.wells) {
-      const nx = Math.min(WORLD_W * 0.85, Math.max(WORLD_W * 0.15, w.x + (this.rand() - 0.5) * 120));
-      const ny = Math.min(this.waterY - 200, Math.max(90, w.y + (this.rand() - 0.5) * 60));
-      if (!this.terrain.solid(nx, ny) && this.terrain.groundBelow(nx, ny - 40) > ny + 60) {
-        w.x = nx;
-        w.y = ny;
-      }
+    if (!alive[0] || !alive[1]) return this.finish(alive[0] ? 0 : alive[1] ? 1 : -1);
+    if (this.phase === "play" && this.clock <= 0) {
+      const hp = [0, 1].map((t) => this.worms.reduce((a, w) => a + (w.alive && w.team === t ? w.hp : 0), 0));
+      const n = [0, 1].map((t) => this.worms.filter((w) => w.alive && w.team === t).length);
+      if (hp[0] !== hp[1]) return this.finish(hp[0] > hp[1] ? 0 : 1);
+      if (n[0] !== n[1]) return this.finish(n[0] > n[1] ? 0 : 1);
+      return this.finish(-1);
     }
   }
 
-  private beginTurn(team: Seat): void {
-    const roster = this.worms.filter((w) => w.team === team);
-    let idx = this.lastIdx[team];
-    for (let i = 0; i < roster.length; i++) {
-      idx = (idx + 1) % roster.length;
-      if (roster[idx].alive) break;
-    }
-    this.lastIdx[team] = idx;
-    this.team = team;
-    this.activeId = roster[idx].id;
-    this.phase = "aim";
-    this.timer = TURN_SECONDS;
-    this.retreat = 0;
-    this.shots = 0;
-    this.moveDir = 0;
-    const me = roster[idx];
-    this.aim = me.facing === 1 ? -Math.PI / 4 : (-3 * Math.PI) / 4;
-    if (this.ammo[team][this.weapon] === 0) this.weapon = "rocket";
-    if (this.fixedWind !== undefined) this.wind = this.fixedWind;
-    else {
-      const prev = this.wind;
-      do this.wind = Math.round((this.rand() * 2 - 1) * 100) / 100;
-      while (Math.abs(this.wind - prev) < 0.05);
-    }
-    this.events.push({ t: "turn", team, active: this.activeId });
+  private finish(winner: Seat | -1): void {
+    this.phase = "over";
+    this.winner = winner;
+    for (const p of this.pilots) p.move = 0;
+  }
+
+  private retargetWells(): void {
+    this.wellTargets = this.wells.map((w) => {
+      const nx = Math.min(WORLD_W * 0.85, Math.max(WORLD_W * 0.15, w.x + (this.rand() - 0.5) * 160));
+      const ny = Math.min(this.waterY - 200, Math.max(90, w.y + (this.rand() - 0.5) * 80));
+      return !this.terrain.solid(nx, ny) && this.terrain.groundBelow(nx, ny - 40) > ny + 60 ? { x: nx, y: ny } : { ...w };
+    });
+  }
+
+  /** Wells glide toward their targets so shots never meet a sudden jump. */
+  private driftWells(dt: number): void {
+    const k = 1 - Math.exp(-dt * 0.4);
+    this.wells.forEach((w, i) => {
+      const t = this.wellTargets[i];
+      if (!t) return;
+      w.x += (t.x - w.x) * k;
+      w.y += (t.y - w.y) * k;
+    });
   }
 
   forfeit(seat: Seat): void {
     if (this.phase === "over") return;
-    this.phase = "over";
-    this.winner = (1 - seat) as Seat;
+    this.finish((1 - seat) as Seat);
     this.projectiles = [];
   }
 }

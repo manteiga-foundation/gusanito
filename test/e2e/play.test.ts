@@ -53,7 +53,7 @@ test("home screen offers create and join on a phone", async () => {
   await q.context().close();
 });
 
-test("two phones meet in the Ready Player One / Two lobby and play a turn", async () => {
+test("two phones meet in the Ready Player One / Two lobby and play at the same time", async () => {
   const a = await open();
   await a.fill("#name", "Ada");
   await a.tap("#create");
@@ -78,36 +78,43 @@ test("two phones meet in the Ready Player One / Two lobby and play a turn", asyn
   await b.tap("#ready");
 
   for (const p of [a, b]) await p.waitForSelector("#hud:not([hidden])");
-  await a.waitForTimeout(600);
+  // a short countdown, then both play at once against a match clock
+  expect(await a.textContent("#turn-label")).toMatch(/Starting in [1-3]/);
+  for (const p of [a, b]) await p.waitForFunction(() => (window as any).__wriggle.snapshot()?.phase === "play", null, { timeout: 8000 });
+  expect(await a.textContent("#timer")).toMatch(/^[23]:\d\d$/);
   await a.screenshot({ path: `${SHOTS}/game-p1.png` });
   await b.screenshot({ path: `${SHOTS}/game-p2.png` });
-  expect((await snap(a)).team).toBe(0);
-  expect(await a.textContent("#turn-label")).toContain("Your turn");
-  expect(await b.textContent("#turn-label")).toContain("Ada");
 
-  // aim by dragging on the canvas, then fire
-  const me = await a.evaluate(() => (window as any).__wriggle.activeScreen());
-  await a.mouse.move(me.x, me.y);
-  await a.mouse.down();
-  await a.mouse.move(me.x + 120, me.y - 90, { steps: 4 });
-  await a.mouse.up();
-  await a.waitForTimeout(150);
-  const aim = (await snap(b)).aim;
-  expect(aim).toBeLessThan(0);
-  expect(aim).toBeGreaterThan(-Math.PI / 2);
-  await a.tap("#fire");
-  await a.waitForTimeout(500);
-  await a.screenshot({ path: `${SHOTS}/game-p1-fired.png` });
-  await b.waitForFunction(() => (window as any).__wriggle.snapshot().team === 1, null, { timeout: 15000 });
-  await b.waitForFunction(() => document.querySelector("#turn-label")?.textContent?.includes("Your turn"));
-  await b.screenshot({ path: `${SHOTS}/game-p2-turn.png` });
+  // both players aim by dragging and fire in the same moment
+  const firstA = (await snap(a)).seats[0].active;
+  const firstB = (await snap(b)).seats[1].active;
+  for (const [p, dx] of [[a, 120], [b, -120]] as const) {
+    const me = await p.evaluate(() => (window as any).__wriggle.activeScreen());
+    await p.mouse.move(me.x, me.y);
+    await p.mouse.down();
+    await p.mouse.move(me.x + dx, me.y - 110, { steps: 4 });
+    await p.mouse.up();
+  }
+  await Promise.all([a.tap("#fire"), b.tap("#fire")]);
+  await a.waitForFunction(() => {
+    const s = (window as any).__wriggle.snapshot();
+    return new Set(s.proj.map((p: any) => p.team)).size === 2;
+  }, null, { timeout: 3000 });
+  await a.screenshot({ path: `${SHOTS}/game-both-fired.png` });
 
-  // the weapon tray switches weapons for the player on turn
+  // each shooter is handed their next worm at once, and the Fire button shows the reload
+  const s1 = await snap(a);
+  expect(s1.seats[0].active).not.toBe(firstA);
+  expect(s1.seats[1].active).not.toBe(firstB);
+  expect(await a.locator("#fire").evaluate((e) => e.classList.contains("reloading"))).toBe(true);
+  await a.waitForFunction(() => !document.querySelector("#fire")!.classList.contains("reloading"), null, { timeout: 5000 });
+
+  // the weapon tray works at any moment
   await b.tap("#weapon");
   await b.waitForSelector("#tray:not([hidden])");
   await b.screenshot({ path: `${SHOTS}/tray.png` });
   await b.tap('[data-weapon="grenade"]');
-  await b.waitForFunction(() => (window as any).__wriggle.snapshot().weapon === "grenade");
+  await b.waitForFunction(() => (window as any).__wriggle.snapshot().seats[1].weapon === "grenade");
 
   // a dropped player sees the match pause and resumes on reconnect
   await b.evaluate(() => (window as any).__wriggle.dropConnection());

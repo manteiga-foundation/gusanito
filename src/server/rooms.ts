@@ -47,8 +47,7 @@ function parseInput(m: Record<string, unknown>): GameInput | null {
     case "move":
       return m.dir === -1 || m.dir === 0 || m.dir === 1 ? { t: "move", dir: m.dir } : null;
     case "jump":
-    case "skip":
-      return { t: m.t };
+      return { t: "jump" };
     case "aim":
       return typeof m.angle === "number" && Number.isFinite(m.angle) ? { t: "aim", angle: m.angle } : null;
     case "fire":

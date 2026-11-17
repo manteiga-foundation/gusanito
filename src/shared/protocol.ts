@@ -1,15 +1,14 @@
 import type { ColorId, WeaponId } from "./constants.ts";
 
 export type Seat = 0 | 1;
-export type Phase = "aim" | "retreat" | "settle" | "over";
+export type Phase = "countdown" | "play" | "over";
 
 export type GameInput =
   | { t: "move"; dir: -1 | 0 | 1 }
   | { t: "jump" }
   | { t: "aim"; angle: number }
   | { t: "weapon"; id: WeaponId }
-  | { t: "fire"; power: number }
-  | { t: "skip" };
+  | { t: "fire"; power: number };
 
 export type ClientMsg =
   | { t: "create"; name: string; token?: string }
@@ -31,6 +30,7 @@ export interface WormView {
 
 export interface ProjView {
   id: number;
+  team: Seat;
   k: "rocket" | "grenade" | "cluster" | "bomblet";
   x: number;
   y: number;
@@ -39,21 +39,29 @@ export interface ProjView {
   fuse: number;
 }
 
+/** What one player is doing right now; both players act at the same time. */
+export interface SeatView {
+  active: number;
+  aim: number;
+  weapon: WeaponId;
+  /** seconds until this player can fire again */
+  reload: number;
+  /** the reload's full length, for drawing progress */
+  reloadOf: number;
+  ammo: Record<WeaponId, number>;
+}
+
 export interface Snapshot {
   phase: Phase;
-  turn: number;
-  team: Seat;
-  active: number;
-  timer: number;
-  retreat: number;
+  /** whole seconds left in the opening countdown */
+  countdown: number;
+  /** whole seconds left on the match clock */
+  clock: number;
   wind: number;
   wells: { x: number; y: number }[];
   worms: WormView[];
   proj: ProjView[];
-  weapon: WeaponId;
-  aim: number;
-  shots: number;
-  ammo: Record<WeaponId, number>;
+  seats: [SeatView, SeatView];
   waterY: number;
   winner: Seat | -1 | null;
 }
@@ -67,7 +75,7 @@ export type GameEvent =
   | { t: "shot"; x0: number; y0: number; x1: number; y1: number }
   | { t: "fizzle"; x: number; y: number }
   | { t: "splash"; x: number }
-  | { t: "turn"; team: Seat; active: number };
+  | { t: "switch"; seat: Seat; active: number };
 
 export interface LobbyPlayer {
   name: string;

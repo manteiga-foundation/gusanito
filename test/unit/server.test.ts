@@ -68,7 +68,7 @@ test("two sockets create, join, ready up, and receive a live match", async () =>
   const start = await b.wait("start");
   expect(start.seat).toBe(1);
   const s = await a.wait("state", (m) => m.s.worms.length === 6);
-  expect(s.s.phase).toBe("aim");
+  expect(s.s.phase).toBe("countdown");
   a.close();
   b.close();
 });

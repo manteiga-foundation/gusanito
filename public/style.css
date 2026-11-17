@@ -319,9 +319,10 @@ input::placeholder { color: var(--ink-faint); }
 }
 #turn-label.mine { background: linear-gradient(180deg, var(--gold), var(--gold-deep)); color: #2a1a10; border-color: transparent; }
 .clock {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
+  min-width: 64px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 999px;
   display: grid;
   place-items: center;
   background: var(--glass);
@@ -394,6 +395,17 @@ input::placeholder { color: var(--ink-faint); }
   box-shadow: 0 8px 22px rgba(242, 155, 75, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 #hud.idle .controls { opacity: 0.32; pointer-events: none; }
+#hud.counting .pad.fire, #hud.counting #jump { opacity: 0.32; pointer-events: none; }
+/* reload: the Fire button refills clockwise as the weapon readies */
+.pad.fire.reloading {
+  background:
+    conic-gradient(rgba(19, 15, 35, 0.72) calc(var(--reload, 0) * 360deg), transparent 0),
+    radial-gradient(circle at 50% 35%, var(--gold), var(--gold-deep));
+  color: rgba(42, 26, 16, 0.55);
+  box-shadow: none;
+}
+#turn-label.warn { background: rgba(255, 107, 107, 0.18); border-color: var(--danger); color: var(--ink); }
+.banner-sub { font-size: 13px; color: var(--ink-dim); margin-top: -4px; }
 #hud.idle .hint, #hud.fired .hint { opacity: 0; }
 #hud.fired .pad.fire, #hud.fired #weapon { opacity: 0.32; pointer-events: none; }
 .hint {
