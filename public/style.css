@@ -128,7 +128,8 @@ input::placeholder { color: var(--ink-faint); }
 .wordmark {
   margin: 0;
   font-size: 52px;
-  line-height: 0.95;
+  line-height: 1.05;
+  padding-bottom: 0.06em;
   letter-spacing: -0.02em;
   font-weight: 800;
   background: linear-gradient(100deg, var(--p1) 0%, var(--gold) 50%, var(--p2) 100%);
@@ -145,6 +146,9 @@ input::placeholder { color: var(--ink-faint); }
 #code { text-transform: uppercase; letter-spacing: 0.3em; text-align: center; }
 .error { margin: 0; color: var(--danger); font-size: 13px; }
 
+.credit { margin: 4px 0 0; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; color: var(--ink-faint); }
+.credit a { color: var(--ink-dim); text-decoration: none; border-bottom: 1px solid var(--line); }
+
 /* ---------- lobby ---------- */
 .lobby-panel {
   width: min(560px, 100%);
@@ -153,7 +157,29 @@ input::placeholder { color: var(--ink-faint); }
   gap: 16px;
   justify-items: stretch;
 }
-.lobby-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.lobby-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px 18px; flex-wrap: wrap; }
+.invite { display: grid; gap: 6px; min-width: 0; flex: 1 1 260px; max-width: 360px; }
+.invite-row { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.invite-link {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: rgba(10, 8, 22, 0.55);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-user-select: all;
+  user-select: all;
+}
+.invite-row .btn { padding: 0 14px; flex: none; }
 .code { font-size: 34px; font-weight: 800; letter-spacing: 0.22em; line-height: 1.1; }
 .seats { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: stretch; }
 .versus {
@@ -568,6 +594,7 @@ body[data-hud="cards"] .corner { top: calc(92px + var(--safe-t)); }
   .home-panel .or { grid-column: 2; grid-row: 4; }
   .home-panel .join-row { grid-column: 2; grid-row: 5; }
   .home-panel .error { grid-column: 1 / -1; }
+  .home-panel .credit { grid-column: 1; grid-row: 5; align-self: center; }
   .wordmark { font-size: 56px; }
   .lobby-panel { padding: 16px 20px; gap: 12px; width: min(620px, 100%); }
   .code { font-size: 28px; }

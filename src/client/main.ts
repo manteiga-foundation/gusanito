@@ -208,19 +208,34 @@ class App {
       const me = this.seat !== null ? this.lobby?.players[this.seat] : null;
       this.net.send({ t: "ready", ready: !me?.ready });
     });
+    if (!navigator.share) $("#invite").hidden = true;
     $("#invite").addEventListener("click", async () => {
-      const url = `${location.origin}/?room=${this.session?.code ?? ""}`;
-      const btn = $("#invite");
+      const me = this.seat !== null ? this.lobby?.players[this.seat]?.name : null;
+      const code = this.session?.code ?? "";
       try {
-        if (navigator.share) await navigator.share({ title: "Wriggle", text: "Join my Wriggle match", url });
-        else {
-          await navigator.clipboard.writeText(url);
-          btn.textContent = "Link copied";
-          setTimeout(() => (btn.textContent = "Share invite"), 1800);
-        }
+        await navigator.share({ title: "Wriggle", text: `${me ? `${me} invites you to` : "Join"} a Wriggle match (code ${code}).`, url: this.inviteUrl() });
       } catch {
         /* share sheet dismissed */
       }
+    });
+    $("#copy-link").addEventListener("click", async () => {
+      const btn = $("#copy-link");
+      const url = this.inviteUrl();
+      let ok = false;
+      try {
+        await navigator.clipboard.writeText(url);
+        ok = true;
+      } catch {
+        // older browsers: copy from a selection
+        const range = document.createRange();
+        range.selectNodeContents($("#invite-link"));
+        const sel = getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+        ok = document.execCommand("copy");
+      }
+      btn.textContent = ok ? "Copied" : "Select and copy";
+      setTimeout(() => (btn.textContent = "Copy"), 1800);
     });
     $("#leave").addEventListener("click", () => {
       this.net.send({ t: "leave" });
@@ -267,8 +282,13 @@ class App {
     }
   }
 
+  private inviteUrl(): string {
+    return `${location.origin}/?room=${this.session?.code ?? ""}`;
+  }
+
   private renderLobby(): void {
     const L = this.lobby!;
+    $("#invite-link").textContent = this.inviteUrl().replace(/^https?:\/\//, "");
     this.applyColors([L.players[0]?.color ?? DEFAULT_COLORS[0], L.players[1]?.color ?? DEFAULT_COLORS[1]]);
     L.players.forEach((p, i) => {
       const el = $(`.seat[data-seat="${i}"]`);

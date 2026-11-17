@@ -219,3 +219,30 @@ test("each player chooses a colour in the lobby and it carries into the match", 
   await a.context().close();
   await b.context().close();
 }, 60000);
+
+test("inviting is one tap: the link is visible, copyable, and the foundation is credited", async () => {
+  const home = await open();
+  const credit = home.locator("#credit a");
+  expect(await credit.getAttribute("href")).toBe("https://manteiga.org");
+  expect(await credit.textContent()).toContain("Manteiga Foundation");
+  await home.context().close();
+
+  const ctx = await browser.newContext({ ...phone, permissions: ["clipboard-read", "clipboard-write"] });
+  const a = await ctx.newPage();
+  a.on("pageerror", (e) => errors.push(String(e)));
+  await a.goto(url + "/");
+  await a.fill("#name", "Ada");
+  await a.tap("#create");
+  await a.waitForSelector("#lobby:not([hidden])");
+  const code = (await a.textContent("#room-code"))!.trim();
+  const link = (await a.textContent("#invite-link"))!.trim();
+  expect(link.endsWith(`/?room=${code}`)).toBe(true);
+  await a.evaluate(() => Object.defineProperty(navigator, "share", { value: undefined, configurable: true }));
+  await a.tap("#copy-link");
+  await a.waitForFunction(() => document.querySelector("#copy-link")?.textContent === "Copied");
+  const clip = await a.evaluate(() => navigator.clipboard.readText());
+  expect(clip).toBe(`${url}/?room=${code}`);
+  await a.screenshot({ path: `${SHOTS}/lobby-invite.png` });
+  expect(errors).toEqual([]);
+  await ctx.close();
+}, 30000);

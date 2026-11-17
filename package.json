@@ -13,6 +13,7 @@
     "test": "bun test test/unit",
     "test:e2e": "bun run build && bun test test/e2e --timeout 60000",
     "test:live": "BASE_URL=https://wriggle-game.fly.dev SHOTS_DIR=test-results/live bun test test/e2e --timeout 90000",
+    "og-card": "bun run build && bun run scripts/og-card.ts",
     "deploy": "fly deploy --config fly.toml --remote-only --ha=false"
   },
   "devDependencies": {

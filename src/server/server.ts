@@ -10,12 +10,34 @@ const TYPES: Record<string, string> = {
   webmanifest: "application/manifest+json",
   svg: "image/svg+xml",
   png: "image/png",
+  jpg: "image/jpeg",
 };
 
 export interface ServerOptions {
   port: number;
   hostname?: string;
   staticDir: string;
+}
+
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+const GENERIC = {
+  title: "Wriggle: two-player artillery",
+  description: "Destructible ground, shifting wind and gravity wells that bend every shot. Invite a friend and play in the browser. A Manteiga Foundation game.",
+};
+
+/** Fills the page's link-preview tags; an invite link names the host and the match code. */
+export function renderPage(template: string, origin: string, room: string | null, host: string | null): string {
+  const invite = room && host;
+  const fields: Record<string, string> = {
+    title: invite ? `${host} invites you to Wriggle` : GENERIC.title,
+    description: invite
+      ? `Tap to join match ${room}. Two players, destructible ground, wind and gravity wells. A Manteiga Foundation game.`
+      : GENERIC.description,
+    url: invite ? `${origin}/?room=${room}` : `${origin}/`,
+    image: `${origin}/og-card.jpg`,
+  };
+  return template.replace(/\{\{(\w+)\}\}/g, (_, k: string) => esc(fields[k] ?? ""));
 }
 
 export function startServer(opts: ServerOptions) {
@@ -44,7 +66,17 @@ export function startServer(opts: ServerOptions) {
       } catch {
         return new Response("not found", { status: 404 });
       }
-      if (path === "/") path = "/index.html";
+      if (path === "/" || path === "/index.html") {
+        const page = Bun.file(resolve(root, "index.html"));
+        if (!(await page.exists())) return new Response("not found", { status: 404 });
+        const host = (req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? url.host).split(",")[0].trim();
+        const local = /^(localhost|127\.|\[::1\])/.test(host);
+        const origin = `${local ? url.protocol.replace(":", "") : "https"}://${host}`;
+        const code = (url.searchParams.get("room") ?? "").toUpperCase();
+        const seat = /^[A-Z]{4}$/.test(code) ? rooms.get(code)?.seats[0] : undefined;
+        const html = renderPage(await page.text(), origin, seat ? code : null, seat?.name ?? null);
+        return new Response(html, { headers: { "content-type": TYPES.html, "cache-control": "no-cache", "x-content-type-options": "nosniff" } });
+      }
       const file = resolve(root, "." + path);
       if (!file.startsWith(root + sep)) return new Response("not found", { status: 404 });
       const f = Bun.file(file);

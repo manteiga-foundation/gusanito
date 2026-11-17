@@ -72,3 +72,37 @@ test("two sockets create, join, ready up, and receive a live match", async () =>
   a.close();
   b.close();
 });
+
+test("the page carries a generic link preview card", async () => {
+  const html = await (await fetch(`http://${base}/`, { headers: { host: "gusanito.example" } })).text();
+  expect(html).toContain('<meta property="og:title" content="Wriggle');
+  expect(html).toContain('<meta property="og:image" content="https://gusanito.example/og-card.jpg"');
+  expect(html).toContain('<meta name="twitter:card" content="summary_large_image"');
+  expect(html).toContain("Manteiga Foundation");
+  expect(html).not.toContain("{{");
+});
+
+test("an invite link previews who is inviting and the match code, safely escaped", async () => {
+  const a = ws();
+  await a.open;
+  a.send({ t: "create", name: 'Ada "<b>&' });
+  const { code } = await a.wait("joined");
+  const html = await (await fetch(`http://${base}/?room=${code}`, { headers: { host: "gusanito.example" } })).text();
+  // names lose angle brackets at the door; quotes and ampersands are escaped in the tags
+  expect(html).toContain(`<meta property="og:title" content="Ada &quot;b&amp; invites you to Wriggle">`);
+  expect(html).toContain(`match ${code}`);
+  expect(html).toContain(`<meta property="og:url" content="https://gusanito.example/?room=${code}">`);
+  expect(html).not.toContain("<b>&");
+  a.close();
+});
+
+test("an unknown room code falls back to the generic card", async () => {
+  const html = await (await fetch(`http://${base}/?room=QQQQ`)).text();
+  expect(html).not.toContain("invites you");
+});
+
+test("the preview image is served as a jpeg", async () => {
+  const r = await fetch(`http://${base}/og-card.jpg`);
+  expect(r.status).toBe(200);
+  expect(r.headers.get("content-type")).toBe("image/jpeg");
+});
