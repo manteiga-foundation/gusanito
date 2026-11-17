@@ -1,7 +1,7 @@
 import {
   BOMBLET, COUNTDOWN_SECONDS, FALL_SAFE_SPEED, GRAVITY, JUMP_VX, JUMP_VY, MATCH_SECONDS, MAX_POWER, RISE_LAST_SECONDS,
   RISE_SPEED, STEP_UP, TICK, WALK_SPEED, WATER_Y, WEAPON_ORDER, WEAPONS, WELL_CORE, WELL_G, WELL_SOFT, WIND_ACCEL,
-  WIND_SECONDS, WORLD_W, WORM_R, type WeaponId,
+  WIND_SECONDS, WORLD_W, WORM_R, WORMS_PER_TEAM, type WeaponId,
 } from "./constants.ts";
 import type { GameEvent, GameInput, Phase, ProjView, Seat, SeatView, Snapshot } from "./protocol.ts";
 import { rng } from "./rng.ts";
@@ -41,11 +41,12 @@ export interface Well {
 
 export interface GameOptions {
   seed: number;
-  names: [string, string];
+  /** one name per team; the number of names is the number of teams */
+  names: string[];
   wormsPerTeam?: number;
   terrain?: Terrain;
   /** x positions per team; worms are dropped onto the ground there */
-  spawns?: [number[], number[]];
+  spawns?: number[][];
   wells?: Well[];
   /** fixed wind for the whole match (tests); shifts every WIND_SECONDS when omitted */
   wind?: number;
@@ -83,7 +84,7 @@ export class Game {
   readonly terrain: Terrain;
   readonly worms: Worm[] = [];
   readonly wells: Well[];
-  readonly names: [string, string];
+  readonly names: string[];
   projectiles: Projectile[] = [];
   phase: Phase;
   countdown: number;
@@ -93,7 +94,8 @@ export class Game {
   waterY = WATER_Y;
   winner: Seat | -1 | null = null;
   paused = false;
-  readonly pilots: [Pilot, Pilot];
+  readonly pilots: Pilot[];
+  readonly teams: number;
 
   private events: GameEvent[] = [];
   private rand: () => number;
@@ -101,17 +103,20 @@ export class Game {
   private nextProjId = 1;
   private moveWells: boolean;
   private wellTargets: Well[] = [];
+  /** chosen spawn heights by x, so worms land on the floor that was picked (it may be under a ledge) */
+  private spawnY: number[][] = [];
 
   constructor(opts: GameOptions) {
     this.rand = rng(opts.seed);
     this.names = opts.names;
     this.terrain = opts.terrain ?? Terrain.generate(opts.seed);
     this.fixedWind = opts.wind;
-    const per = opts.wormsPerTeam ?? 3;
-    const spawns = opts.spawns ?? this.pickSpawns(per);
+    this.teams = opts.spawns?.length ?? opts.names.length;
+    const per = opts.wormsPerTeam ?? WORMS_PER_TEAM;
+    const spawns = opts.spawns ?? this.pickSpawns(per, this.teams);
     let id = 0;
     spawns.forEach((xs, team) => {
-      for (const x of xs) this.worms.push(this.placeWorm(id++, team as Seat, x));
+      xs.forEach((x, i) => this.worms.push(this.placeWorm(id++, team, x, this.spawnY[team]?.[i])));
     });
     this.moveWells = opts.wells === undefined;
     this.wells = opts.wells ? opts.wells.map((w) => ({ ...w })) : this.pickWells();
@@ -131,7 +136,7 @@ export class Game {
         ammo: { rocket: -1, grenade: -1, cluster: WEAPONS.cluster.ammo, shotgun: -1 },
       };
     };
-    this.pilots = [pilot(0), pilot(1)];
+    this.pilots = Array.from({ length: this.teams }, (_, t) => pilot(t));
     this.wind = this.fixedWind ?? this.rollWind(0);
   }
 
@@ -141,30 +146,52 @@ export class Game {
     return this.terrain.groundBelow(x, 0);
   }
 
-  private pickSpawns(per: number): [number[], number[]] {
+  /** Spread every team's worms over the same map, interleaved; spacing tightens as players are added. */
+  private pickSpawns(per: number, teamCount: number): number[][] {
     const chosen: { x: number; y: number }[] = [];
-    const teams: [number[], number[]] = [[], []];
-    for (let i = 0; i < per * 2; i++) {
-      for (let attempt = 0; attempt < 4000; attempt++) {
+    const teams: number[][] = Array.from({ length: teamCount }, () => []);
+    const total = per * teamCount;
+    let gap = Math.min(90, Math.max(48, 1500 / total));
+    for (let i = 0; i < total; i++) {
+      let placed = false;
+      for (let attempt = 0; attempt < 8000 && !placed; attempt++) {
+        if (attempt > 0 && attempt % 1500 === 0) gap = Math.max(42, gap * 0.85);
         const x = Math.floor(120 + this.rand() * (WORLD_W - 240));
-        const y = this.surfaceY(x);
-        if (y > WATER_Y - 40 || y < 60) continue;
-        if (Math.abs(this.surfaceY(x - 8) - this.surfaceY(x + 8)) > 6) continue;
+        // open ground first; once space runs short, cave floors and ground under ledges too
+        const floors = attempt < 1500 ? [this.surfaceY(x)] : this.floorsAt(x);
+        const y = floors[Math.floor(this.rand() * floors.length)];
+        if (y === undefined || y > WATER_Y - 40 || y < 60) continue;
+        if (Math.abs(this.terrain.groundBelow(x - 8, y - 12) - this.terrain.groundBelow(x + 8, y - 12)) > 6) continue;
         const cy = y - WORM_R - 1;
-        if (chosen.some((c) => Math.hypot(c.x - x, c.y - cy) < 90)) continue;
+        if (chosen.some((c) => Math.hypot(c.x - x, c.y - cy) < gap)) continue;
         if (this.collides(x, cy)) continue;
         chosen.push({ x, y: cy });
-        teams[(i % 2) as Seat].push(x);
-        break;
+        (this.spawnY[i % teamCount] ??= []).push(cy);
+        teams[i % teamCount].push(x);
+        placed = true;
       }
     }
     return teams;
   }
 
-  private placeWorm(id: number, team: Seat, x: number): Worm {
+  /** Every ground surface in a column with headroom for a worm (air above solid). */
+  private floorsAt(x: number): number[] {
+    const out: number[] = [];
+    let air = 0;
+    for (let y = 0; y < this.terrain.h; y++) {
+      if (this.terrain.solid(x, y)) {
+        if (air >= WORM_R * 2 + 6) out.push(y);
+        air = 0;
+      } else air++;
+    }
+    return out;
+  }
+
+  private placeWorm(id: number, team: Seat, x: number, spot?: number): Worm {
+    if (spot !== undefined) return { id, team, x, y: spot, vx: 0, vy: 0, hp: 100, alive: true, facing: team % 2 === 0 ? 1 : -1, grounded: true };
     let y = this.surfaceY(x) - WORM_R - 1;
     while (this.collides(x, y) && y > 0) y--;
-    return { id, team, x, y, vx: 0, vy: 0, hp: 100, alive: true, facing: team === 0 ? 1 : -1, grounded: true };
+    return { id, team, x, y, vx: 0, vy: 0, hp: 100, alive: true, facing: team % 2 === 0 ? 1 : -1, grounded: true };
   }
 
   private pickWells(): Well[] {
@@ -220,7 +247,7 @@ export class Game {
       wells: this.wells.map((w) => ({ x: r1(w.x), y: r1(w.y) })),
       worms: this.worms.map((w) => ({ id: w.id, team: w.team, x: r1(w.x), y: r1(w.y), hp: Math.max(0, Math.round(w.hp)), alive: w.alive, facing: w.facing })),
       proj: this.projectiles.map((p) => ({ id: p.id, team: p.team, k: p.k, x: r1(p.x), y: r1(p.y), vx: Math.round(p.vx), vy: Math.round(p.vy), fuse: Math.ceil(p.fuse) })),
-      seats: [seat(this.pilots[0]), seat(this.pilots[1])],
+      seats: this.pilots.map(seat),
       waterY: Math.round(this.waterY * 10) / 10,
       winner: this.winner,
     };
@@ -233,6 +260,8 @@ export class Game {
     // during the countdown players may aim, pick a weapon and hold a direction; acting waits for "go"
     if (this.phase === "countdown" && (msg.t === "fire" || msg.t === "jump")) return;
     const p = this.pilots[seat];
+    if (!p) return;
+    if (msg.t === "select") return this.select(seat, msg.id);
     const me = this.activeWorm(seat);
     if (!me || !me.alive) return;
     switch (msg.t) {
@@ -288,7 +317,7 @@ export class Game {
         if (this.moveWells) this.retargetWells();
       }
       if (this.moveWells) this.driftWells(dt);
-      for (const s of [0, 1] as Seat[]) {
+      for (let s = 0; s < this.teams; s++) {
         const p = this.pilots[s];
         p.reload = Math.max(0, p.reload - dt);
         const me = this.activeWorm(s);
@@ -395,11 +424,20 @@ export class Game {
       else this.projectiles.push(proj);
     }
     if (p.ammo[p.weapon] === 0) p.weapon = WEAPON_ORDER.find((w) => p.ammo[w] !== 0)!;
-    p.move = 0;
-    this.switchWorm(seat);
   }
 
-  /** Hand the player's control to their next living worm (wrapping); stays put when it is the last one. */
+  /** The player picks which of their own living worms to control; the previous one stops walking. */
+  private select(seat: Seat, id: number): void {
+    const p = this.pilots[seat];
+    const w = this.worms.find((x) => x.id === id);
+    if (!w || w.team !== seat || !w.alive || w.id === p.active) return;
+    p.active = w.id;
+    p.move = 0;
+    w.facing = Math.cos(p.aim) >= 0 ? 1 : -1;
+    this.events.push({ t: "switch", seat, active: w.id });
+  }
+
+  /** When the controlled worm dies, hand control to the team's next living worm (wrapping). */
   private switchWorm(seat: Seat): void {
     const p = this.pilots[seat];
     const roster = this.worms.filter((w) => w.team === seat);
@@ -575,19 +613,23 @@ export class Game {
         this.events.push({ t: "die", id: w.id });
       }
     }
-    for (const s of [0, 1] as Seat[]) if (!this.activeWorm(s).alive) this.switchWorm(s);
+    for (let s = 0; s < this.teams; s++) if (!this.activeWorm(s).alive) this.switchWorm(s);
   }
 
   private checkEnd(): void {
     if (this.phase === "over") return;
-    const alive = [0, 1].map((t) => this.worms.some((w) => w.alive && w.team === t));
-    if (!alive[0] || !alive[1]) return this.finish(alive[0] ? 0 : alive[1] ? 1 : -1);
+    const standing = Array.from({ length: this.teams }, (_, t) => t).filter((t) => this.worms.some((w) => w.alive && w.team === t));
+    if (standing.length <= 1) return this.finish(standing[0] ?? -1);
     if (this.phase === "play" && this.clock <= 0) {
-      const hp = [0, 1].map((t) => this.worms.reduce((a, w) => a + (w.alive && w.team === t ? w.hp : 0), 0));
-      const n = [0, 1].map((t) => this.worms.filter((w) => w.alive && w.team === t).length);
-      if (hp[0] !== hp[1]) return this.finish(hp[0] > hp[1] ? 0 : 1);
-      if (n[0] !== n[1]) return this.finish(n[0] > n[1] ? 0 : 1);
-      return this.finish(-1);
+      // healthiest team wins, then most worms standing; a tie at the top is a draw
+      const score = (t: number) => {
+        const ws = this.worms.filter((w) => w.alive && w.team === t);
+        return [ws.reduce((a, w) => a + w.hp, 0), ws.length];
+      };
+      const ranked = standing.map((t) => ({ t, s: score(t) })).sort((a, b) => b.s[0] - a.s[0] || b.s[1] - a.s[1]);
+      const [first, second] = ranked;
+      const tie = first.s[0] === second.s[0] && first.s[1] === second.s[1];
+      return this.finish(tie ? -1 : first.t);
     }
   }
 
@@ -616,9 +658,16 @@ export class Game {
     });
   }
 
-  forfeit(seat: Seat): void {
+  /** A player who leaves for good loses their worms; the others play on. */
+  forfeit(team: Seat): void {
     if (this.phase === "over") return;
-    this.finish((1 - seat) as Seat);
-    this.projectiles = [];
+    for (const w of this.worms) {
+      if (w.team !== team || !w.alive) continue;
+      w.alive = false;
+      w.hp = 0;
+      this.events.push({ t: "die", id: w.id });
+    }
+    this.projectiles = this.projectiles.filter((p) => p.team !== team);
+    this.checkEnd();
   }
 }

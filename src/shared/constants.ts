@@ -25,6 +25,9 @@ export const WELL_SOFT = 40;
 export const WELL_CORE = 14;
 
 export const FORFEIT_SECONDS = 90;
+/** One player per team colour. */
+export const MAX_PLAYERS = 6;
+export const WORMS_PER_TEAM = 3;
 export const MAX_NAME = 16;
 
 export type WeaponId = "rocket" | "grenade" | "cluster" | "shotgun";
@@ -51,7 +54,7 @@ export const WEAPONS: Record<WeaponId, WeaponSpec> = {
 export const BOMBLET = { radius: 20, damage: 24, knock: 180, count: 5 };
 export const WEAPON_ORDER: WeaponId[] = ["rocket", "grenade", "cluster", "shotgun"];
 
-/** Team colours a player can choose in the lobby; the two players never share one. */
+/** Team colours a player can choose in the lobby; no two players share one. */
 export const PALETTE = {
   coral: { label: "Coral", hex: "#ff7a59" },
   teal: { label: "Teal", hex: "#3fc8b6" },
@@ -62,4 +65,4 @@ export const PALETTE = {
 } as const;
 export type ColorId = keyof typeof PALETTE;
 export const COLOR_ORDER = Object.keys(PALETTE) as ColorId[];
-export const DEFAULT_COLORS: [ColorId, ColorId] = ["coral", "teal"];
+export const DEFAULT_COLORS: ColorId[] = ["coral", "teal", "sky", "lime", "rose", "sun"];

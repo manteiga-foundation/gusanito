@@ -1,7 +1,7 @@
 {
   "name": "Gusanito",
   "short_name": "Gusanito",
-  "description": "Two-player online artillery with destructible ground, wind and gravity wells.",
+  "description": "Online artillery for 2 to 6 players with destructible ground, wind and gravity wells.",
   "start_url": "/",
   "display": "fullscreen",
   "orientation": "landscape",

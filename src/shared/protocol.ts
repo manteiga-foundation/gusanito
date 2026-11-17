@@ -1,6 +1,7 @@
 import type { ColorId, WeaponId } from "./constants.ts";
 
-export type Seat = 0 | 1;
+/** A player slot: a lobby seat (0..5) or a team in a match (0..players-1). */
+export type Seat = number;
 export type Phase = "countdown" | "play" | "over";
 
 export type GameInput =
@@ -8,7 +9,9 @@ export type GameInput =
   | { t: "jump" }
   | { t: "aim"; angle: number }
   | { t: "weapon"; id: WeaponId }
-  | { t: "fire"; power: number };
+  | { t: "fire"; power: number }
+  /** take control of another of your own living worms */
+  | { t: "select"; id: number };
 
 export type ClientMsg =
   | { t: "create"; name: string; token?: string }
@@ -61,7 +64,7 @@ export interface Snapshot {
   wells: { x: number; y: number }[];
   worms: WormView[];
   proj: ProjView[];
-  seats: [SeatView, SeatView];
+  seats: SeatView[];
   waterY: number;
   winner: Seat | -1 | null;
 }
@@ -82,12 +85,15 @@ export interface LobbyPlayer {
   ready: boolean;
   connected: boolean;
   color: ColorId;
+  /** playing in the current match (false for someone who joined mid-match) */
+  inMatch: boolean;
 }
 
 export type ServerMsg =
   | { t: "joined"; code: string; seat: Seat; token: string }
-  | { t: "lobby"; code: string; players: [LobbyPlayer | null, LobbyPlayer | null]; wins: [number, number]; playing: boolean }
-  | { t: "start"; seat: Seat; names: [string, string]; colors: [ColorId, ColorId]; terrain: { w: number; h: number; rle: number[] } }
+  | { t: "lobby"; code: string; players: (LobbyPlayer | null)[]; wins: number[]; playing: boolean }
+  /** `team` is this player's team in the match; names and colors are indexed by team */
+  | { t: "start"; team: Seat; names: string[]; colors: ColorId[]; terrain: { w: number; h: number; rle: number[] } }
   | { t: "state"; s: Snapshot }
   | { t: "events"; list: GameEvent[] }
   | { t: "error"; reason: "full" | "not-found" | "bad-request" };

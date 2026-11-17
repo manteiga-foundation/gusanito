@@ -33,7 +33,7 @@
 
 <main id="home" class="screen">
   <div class="panel home-panel">
-    <div class="eyebrow" id="home-eyebrow">Two-player artillery</div>
+    <div class="eyebrow" id="home-eyebrow">Artillery for 2 to 6 players</div>
     <h1 class="wordmark">Gusanito</h1>
     <p class="sub">Destructible ground, shifting wind, and gravity wells that bend every shot.</p>
     <label class="field">
@@ -69,20 +69,10 @@
         </div>
       </div>
     </div>
-    <div class="seats">
-      <article class="seat" data-seat="0">
-        <div class="seat-title">Ready Player One</div>
-        <div class="seat-name">Waiting</div>
-        <div class="seat-status">Not ready</div>
-        <div class="swatches" role="radiogroup" aria-label="Team colour"></div>
-      </article>
-      <div class="versus" id="score">vs</div>
-      <article class="seat" data-seat="1">
-        <div class="seat-title">Ready Player Two</div>
-        <div class="seat-name">Waiting</div>
-        <div class="seat-status">Not ready</div>
-        <div class="swatches" role="radiogroup" aria-label="Team colour"></div>
-      </article>
+    <div class="seats" id="seats"></div>
+    <div class="my-colors" id="my-colors">
+      <span class="eyebrow">Your colour</span>
+      <div class="swatches" role="radiogroup" aria-label="Team colour"></div>
     </div>
     <button id="ready" class="btn primary big">Ready</button>
     <p id="lobby-note" class="note">Share the code. The match starts when both players are ready.</p>
@@ -92,29 +82,22 @@
 
 <section id="hud" hidden>
   <div class="topbar">
-    <div class="team t0">
-      <div class="team-head"><span class="crown" aria-label="Leading"></span><span class="team-name"></span><span class="lead-tag">Leading</span></div>
-      <div class="team-score"><span class="team-total">300</span><span class="pips"></span></div>
-      <div class="bar"><i></i></div>
-    </div>
+    <ol id="board" class="board" aria-label="Standings"></ol>
     <div class="center">
       <div id="turn-label"></div>
-      <div class="clock"><span id="timer">45</span></div>
+      <div class="clock"><span id="timer">3:00</span></div>
       <div class="wind" aria-label="Wind"><div class="wind-bar"><i></i></div></div>
-      <div id="tug" class="tug" aria-hidden="true"><i class="fill t0"></i><i class="fill t1"></i><b class="mid"></b></div>
+      <div id="tug" class="tug" aria-hidden="true"></div>
       <div id="lead" class="lead" role="status"></div>
     </div>
-    <div class="team t1">
-      <div class="team-head"><span class="crown" aria-label="Leading"></span><span class="team-name"></span><span class="lead-tag">Leading</span></div>
-      <div class="team-score"><span class="team-total">300</span><span class="pips"></span></div>
-      <div class="bar"><i></i></div>
-    </div>
+    <div class="topbar-end"></div>
   </div>
 
   <div class="controls left">
-    <button id="move-left" class="pad" aria-label="Walk left"></button>
-    <button id="jump" class="pad" aria-label="Jump"></button>
-    <button id="move-right" class="pad" aria-label="Walk right"></button>
+    <div id="stick" class="stick" role="application" aria-label="Move: push sideways to walk, up to jump">
+      <div class="stick-ring"></div>
+      <div class="stick-knob"></div>
+    </div>
   </div>
   <div class="controls right">
     <button id="weapon" class="pad wide" aria-label="Choose weapon"></button>

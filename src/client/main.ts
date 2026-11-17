@@ -1,4 +1,4 @@
-import { COLOR_ORDER, DEFAULT_COLORS, PALETTE, WATER_Y, WEAPON_ORDER, WEAPONS, type ColorId, type WeaponId } from "../shared/constants.ts";
+import { COLOR_ORDER, DEFAULT_COLORS, MAX_PLAYERS, PALETTE, WATER_Y, WEAPON_ORDER, WEAPONS, type ColorId, type WeaponId } from "../shared/constants.ts";
 import type { GameEvent, LobbyPlayer, ProjView, Seat, ServerMsg, Snapshot, WormView } from "../shared/protocol.ts";
 import { Terrain } from "../shared/terrain.ts";
 import { Sfx } from "./audio.ts";
@@ -8,6 +8,7 @@ import { Renderer, TEAM, type View } from "./render.ts";
 import { leadText, standings } from "./standings.ts";
 import { CHARGE_MS, Director, chargePower, charges } from "./director.ts";
 import { soundsFor } from "./sounds.ts";
+import { readStick } from "./stick.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 
@@ -25,9 +26,12 @@ class App {
   private sfx = new Sfx();
   private r: Renderer;
   private session: Session | null = null;
+  /** this player's team in the running match */
   private seat: Seat | null = null;
-  private names: [string, string] = ["Player One", "Player Two"];
-  private lobby: { players: [LobbyPlayer | null, LobbyPlayer | null]; wins: [number, number]; playing: boolean } | null = null;
+  /** this player's seat in the lobby (0..5) */
+  private lobbySeat: number | null = null;
+  private names: string[] = [];
+  private lobby: { players: (LobbyPlayer | null)[]; wins: number[]; playing: boolean } | null = null;
   private inMatch = false;
   private prev: { s: Snapshot; t: number } | null = null;
   private cur: { s: Snapshot; t: number } | null = null;
@@ -62,11 +66,6 @@ class App {
       (ok) => this.onStatus(ok),
     );
     this.session = this.loadSession();
-    // HUD treatment for who-is-winning; ?hud=bar|cards picks a candidate and is remembered
-    const hudParam = new URLSearchParams(location.search).get("hud");
-    if (hudParam === "bar" || hudParam === "cards") localStorage.setItem("wriggle.hud", hudParam);
-    document.body.dataset.hud = localStorage.getItem("wriggle.hud") ?? "bar";
-    document.querySelectorAll(".crown").forEach((el) => (el.innerHTML = ICONS.crown));
     this.bindHome();
     this.bindLobby();
     this.bindHud();
@@ -130,7 +129,7 @@ class App {
     switch (m.t) {
       case "joined":
         this.wantsJoin = null;
-        this.seat = m.seat;
+        this.lobbySeat = m.seat;
         this.saveSession({ code: m.code, token: m.token, seat: m.seat });
         history.replaceState(null, "", `/?room=${m.code}`);
         $("#room-code").textContent = m.code;
@@ -142,7 +141,7 @@ class App {
         break;
       case "start":
         this.applyColors(m.colors);
-        this.startMatch(m.seat, m.names, Terrain.fromRLE(m.terrain.w, m.terrain.h, m.terrain.rle));
+        this.startMatch(m.team, m.names, Terrain.fromRLE(m.terrain.w, m.terrain.h, m.terrain.rle));
         break;
       case "state":
         if (this.frozen) break;
@@ -157,7 +156,7 @@ class App {
         this.wantsJoin = null;
         const err = $("#home-error");
         err.hidden = false;
-        err.textContent = m.reason === "full" ? "That match already has two players." : m.reason === "not-found" ? "No match with that code. Check it with your friend." : "Something went wrong. Try again.";
+        err.textContent = m.reason === "full" ? `That match is full (${MAX_PLAYERS} players).` : m.reason === "not-found" ? "No match with that code. Check it with your friend." : "Something went wrong. Try again.";
         if (m.reason === "not-found" && this.session) this.saveSession(null);
         if (this.invited) {
           this.setInvited(null);
@@ -230,18 +229,18 @@ class App {
     $("#create-instead").hidden = !this.invited;
     // the server names the host in the page's preview title
     const host = document.querySelector('meta[property="og:title"]')?.getAttribute("content")?.match(/^(.+) invites you to Gusanito$/)?.[1];
-    $("#home-eyebrow").textContent = this.invited && host ? `${host} invites you` : this.invited ? "You are invited" : "Two-player artillery";
+    $("#home-eyebrow").textContent = this.invited && host ? `${host} invites you` : this.invited ? "You are invited" : "Artillery for 2 to 6 players";
   }
 
   private bindLobby(): void {
     $("#ready").addEventListener("click", () => {
       this.sfx.unlock();
-      const me = this.seat !== null ? this.lobby?.players[this.seat] : null;
+      const me = this.lobbySeat !== null ? this.lobby?.players[this.lobbySeat] : null;
       this.net.send({ t: "ready", ready: !me?.ready });
     });
     if (!navigator.share) $("#invite").hidden = true;
     $("#invite").addEventListener("click", async () => {
-      const me = this.seat !== null ? this.lobby?.players[this.seat]?.name : null;
+      const me = this.lobbySeat !== null ? this.lobby?.players[this.lobbySeat]?.name : null;
       const code = this.session?.code ?? "";
       try {
         await navigator.share({ title: "Gusanito", text: `${me ? `${me} invites you to` : "Join"} a Gusanito match (code ${code}).`, url: this.inviteUrl() });
@@ -274,24 +273,23 @@ class App {
       this.lobby = null;
       this.inMatch = false;
       this.seat = null;
+      this.lobbySeat = null;
       history.replaceState(null, "", "/");
       this.r.setTerrain(Terrain.generate(2024));
       this.show("home");
     });
   }
 
-  /** One source for team colours: CSS variables for the DOM, TEAM for the canvas. */
-  private applyColors(colors: [ColorId, ColorId]): void {
-    colors.forEach((c, i) => {
-      const hex = PALETTE[c]?.hex ?? PALETTE[DEFAULT_COLORS[i]].hex;
-      TEAM[i] = hex;
-      document.documentElement.style.setProperty(i === 0 ? "--p1" : "--p2", hex);
-    });
+  /** Team colours for the match: TEAM for the canvas; DOM pieces take theirs inline. */
+  private applyColors(colors: ColorId[]): void {
+    colors.forEach((c, i) => (TEAM[i] = PALETTE[c]?.hex ?? PALETTE[DEFAULT_COLORS[i]].hex));
   }
 
-  private renderSwatches(el: HTMLElement, mine: ColorId, theirs: ColorId | undefined, editable: boolean): void {
-    const box = el.querySelector<HTMLElement>(".swatches")!;
-    const key = editable ? `${mine}|${theirs ?? ""}` : "";
+  private renderSwatches(mine: ColorId, taken: Set<ColorId>, editable: boolean): void {
+    const row = $("#my-colors");
+    row.hidden = !editable;
+    const box = row.querySelector<HTMLElement>(".swatches")!;
+    const key = editable ? `${mine}|${[...taken].join(",")}` : "";
     if (box.dataset.key === key) return;
     box.dataset.key = key;
     box.innerHTML = "";
@@ -302,9 +300,9 @@ class App {
       b.dataset.color = id;
       b.setAttribute("role", "radio");
       b.setAttribute("aria-checked", String(id === mine));
-      b.setAttribute("aria-label", PALETTE[id].label + (id === theirs ? " (taken)" : ""));
+      b.setAttribute("aria-label", PALETTE[id].label + (taken.has(id) ? " (taken)" : ""));
       b.style.setProperty("--c", PALETTE[id].hex);
-      b.disabled = id === theirs;
+      b.disabled = taken.has(id);
       b.addEventListener("click", () => {
         if (id !== mine) this.net.send({ t: "color", color: id });
         this.sfx.blip(520 + COLOR_ORDER.indexOf(id) * 60);
@@ -319,34 +317,55 @@ class App {
 
   private renderLobby(): void {
     const L = this.lobby!;
+    const ORDINAL = ["One", "Two", "Three", "Four", "Five", "Six"];
     $("#invite-link").textContent = this.inviteUrl().replace(/^https?:\/\//, "");
-    this.applyColors([L.players[0]?.color ?? DEFAULT_COLORS[0], L.players[1]?.color ?? DEFAULT_COLORS[1]]);
-    L.players.forEach((p, i) => {
-      const el = $(`.seat[data-seat="${i}"]`);
+    const seated = L.players.map((p, i) => ({ p, i })).filter((x) => x.p);
+    const open = L.players.findIndex((p) => !p);
+    const cards = [...seated.map((x) => x.i), ...(open >= 0 && !L.playing ? [open] : [])];
+    const box = $("#seats");
+    box.innerHTML = "";
+    for (const i of cards) {
+      const p = L.players[i];
+      const el = document.createElement("article");
+      el.className = "seat";
+      el.dataset.seat = String(i);
       el.dataset.color = p?.color ?? "";
-      const theirs = L.players[1 - i]?.color;
-      this.renderSwatches(el, p?.color ?? DEFAULT_COLORS[i], theirs, !!p && i === this.seat && !L.playing);
-      el.classList.toggle("empty", !p);
+      if (p) el.style.setProperty("--c", PALETTE[p.color].hex);
+      el.classList.toggle("open", !p);
       el.classList.toggle("is-ready", !!p?.ready);
       el.classList.toggle("is-away", !!p && !p.connected);
-      el.classList.toggle("is-me", i === this.seat);
-      el.querySelector(".seat-name")!.textContent = p ? p.name : "Waiting for a player";
-      el.querySelector(".seat-status")!.textContent = !p ? "Open seat" : !p.connected ? "Disconnected" : p.ready ? "Ready" : "Not ready";
-    });
-    $("#score").textContent = L.wins[0] + L.wins[1] > 0 ? `${L.wins[0]} : ${L.wins[1]}` : "vs";
-    const me = this.seat !== null ? L.players[this.seat] : null;
-    const ready = $("#ready");
-    ready.textContent = me?.ready ? "Cancel ready" : L.wins[0] + L.wins[1] > 0 ? "Ready for a rematch" : "Ready";
+      el.classList.toggle("is-waiting", !!p && L.playing && !p.inMatch);
+      el.classList.toggle("is-me", i === this.lobbySeat);
+      const status = !p ? "Open seat" : !p.connected ? "Disconnected" : L.playing ? (p.inMatch ? "Playing" : "Next round") : p.ready ? "Ready" : "Not ready";
+      const wins = L.wins[i] ?? 0;
+      el.innerHTML = `<div class="seat-title">Ready Player <b>${ORDINAL[i]}</b></div><div class="seat-name"></div><div class="seat-status">${status}</div>${wins ? `<div class="seat-wins">${wins} ${wins === 1 ? "win" : "wins"}</div>` : ""}`;
+      el.querySelector(".seat-name")!.textContent = p ? p.name : "Invite a friend";
+      box.appendChild(el);
+    }
+    const me = this.lobbySeat !== null ? L.players[this.lobbySeat] : null;
+    const taken = new Set(L.players.filter((p, i) => p && i !== this.lobbySeat).map((p) => p!.color));
+    this.renderSwatches(me?.color ?? "coral", taken, !!me && !L.playing);
+    const ready = $<HTMLButtonElement>("#ready");
+    const anyWins = L.wins.some((w) => w > 0);
+    ready.disabled = L.playing;
+    ready.textContent = L.playing ? "A round is on" : me?.ready ? "Cancel ready" : anyWins ? "Ready for a rematch" : "Ready";
     ready.classList.toggle("is-on", !!me?.ready);
-    const other = this.seat !== null ? L.players[1 - this.seat] : null;
-    $("#lobby-note").textContent = !other ? "Share the code with a friend. The match starts when both players are ready." : !other.ready ? `Waiting for ${other.name} to get ready.` : `${other.name} is ready. Tap Ready to start.`;
+    const others = seated.filter((x) => x.i !== this.lobbySeat).map((x) => x.p!);
+    const waitingOn = others.filter((p) => !p.ready);
+    $("#lobby-note").textContent = L.playing
+      ? "A round is on. You join the next one."
+      : others.length === 0
+        ? `Share the link. Up to ${MAX_PLAYERS} players; the match starts when everyone here is ready.`
+        : waitingOn.length
+          ? `Waiting for ${waitingOn.map((p) => p.name).join(", ")} to get ready.`
+          : "Everyone else is ready. Tap Ready to start.";
     // pause notice during a match
-    const away = L.playing && L.players.some((p) => p && !p.connected);
+    const away = L.playing && L.players.some((p) => p && p.inMatch && !p.connected);
     const paused = $("#paused");
     paused.hidden = !this.inMatch || !away;
     if (away) {
-      const who = L.players.find((p) => p && !p.connected);
-      paused.textContent = `${who?.name ?? "Opponent"} lost connection. Match paused.`;
+      const who = L.players.find((p) => p && p.inMatch && !p.connected);
+      paused.textContent = `${who?.name ?? "A player"} lost connection. Match paused.`;
     }
     if (!L.playing && this.inMatch && !this.overShown) {
       // the match ended while this client was not watching the result
@@ -356,7 +375,7 @@ class App {
   }
 
   // ---------- match ----------
-  private startMatch(seat: Seat, names: [string, string], terrain: Terrain): void {
+  private startMatch(seat: Seat, names: string[], terrain: Terrain): void {
     this.seat = seat;
     this.names = names;
     this.inMatch = true;
@@ -372,7 +391,7 @@ class App {
     this.r.resize();
     $("#banner").hidden = true;
     $("#tray").hidden = true;
-    document.querySelectorAll<HTMLElement>(".team").forEach((el, i) => (el.querySelector(".team-name")!.textContent = names[i]));
+    this.buildBoard(names);
     this.show("hud");
     void this.requestWakeLock();
   }
@@ -440,24 +459,54 @@ class App {
     }
   }
 
+  /** One row per team on the board and one segment per team in the shared bar. */
+  private buildBoard(names: string[]): void {
+    const board = $("#board");
+    const tug = $("#tug");
+    board.innerHTML = "";
+    tug.innerHTML = "";
+    names.forEach((name, t) => {
+      const row = document.createElement("li");
+      row.className = "row" + (t === this.seat ? " is-me" : "");
+      row.dataset.team = String(t);
+      row.style.setProperty("--tone", TEAM[t]);
+      row.innerHTML = `<span class="rank"></span><span class="crown">${ICONS.crown}</span><span class="team-name"></span><span class="team-total">300</span><span class="pips"></span>`;
+      row.querySelector(".crown")!.remove();
+      row.querySelector(".rank")!.innerHTML = `<span class="crown">${ICONS.crown}</span><span class="n"></span>`;
+      row.querySelector(".team-name")!.textContent = t === this.seat ? `${name} (you)` : name;
+      board.appendChild(row);
+      const seg = document.createElement("i");
+      seg.className = "seg";
+      seg.dataset.team = String(t);
+      seg.style.setProperty("--tone", TEAM[t]);
+      tug.appendChild(seg);
+    });
+  }
+
   private renderStandings(s: Snapshot): void {
-    const st = standings(s);
-    for (const team of [0, 1] as Seat[]) {
-      const el = $(`.team.t${team}`);
-      el.classList.toggle("leading", st.leader === team);
-      el.classList.toggle("trailing", st.leader !== null && st.leader !== team);
-      const total = el.querySelector(".team-total")!;
+    const st = standings(s, this.names.length);
+    st.order.forEach((team, rank) => {
+      const row = document.querySelector<HTMLElement>(`.row[data-team="${team}"]`);
+      if (!row) return;
+      row.style.order = String(rank);
+      row.classList.toggle("leading", st.leader === team);
+      row.classList.toggle("out", st.alive[team] === 0);
+      row.querySelector(".n")!.textContent = String(rank + 1);
+      const total = row.querySelector(".team-total")!;
       if (total.textContent !== String(st.hp[team])) total.textContent = String(st.hp[team]);
-      el.querySelector<HTMLElement>(".bar i")!.style.width = `${(100 * st.hp[team]) / (100 * Math.max(1, st.size[team]))}%`;
       const pips = s.worms.filter((w) => w.team === team).map((w) => `<i class="pip${w.alive ? " alive" : ""}"></i>`).join("");
-      const box = el.querySelector(".pips")!;
+      const box = row.querySelector(".pips")!;
       if (box.innerHTML !== pips) box.innerHTML = pips;
-    }
-    $<HTMLElement>("#tug .fill.t0").style.width = `${st.share * 100}%`;
-    $<HTMLElement>("#tug .fill.t1").style.width = `${(1 - st.share) * 100}%`;
+    });
+    st.share.forEach((sh, t) => {
+      const seg = document.querySelector<HTMLElement>(`#tug .seg[data-team="${t}"]`);
+      if (seg) seg.style.width = `${sh * 100}%`;
+    });
     const lead = $("#lead");
     lead.textContent = leadText(st, this.names, this.seat);
-    lead.className = `lead ${st.leader === null ? "even" : `lead-${st.leader}`}`;
+    lead.className = "lead";
+    if (st.leader !== null) lead.style.setProperty("--tone", TEAM[st.leader]);
+    else lead.style.removeProperty("--tone");
     if (this.lastLeader !== undefined && this.lastLeader !== st.leader) {
       void lead.offsetWidth;
       lead.classList.add("pulse");
@@ -510,9 +559,6 @@ class App {
 
   private bindHud(): void {
     if (localStorage.getItem("wriggle.aimed")) $("#aim-hint").hidden = true;
-    $("#move-left").innerHTML = ICONS.left;
-    $("#move-right").innerHTML = ICONS.right;
-    $("#jump").innerHTML = ICONS.jump;
     $("#fullscreen").innerHTML = ICONS.fullscreen;
     const sound = $("#sound");
     sound.innerHTML = this.sfx.muted ? ICONS.soundOff : ICONS.soundOn;
@@ -526,30 +572,7 @@ class App {
           .requestFullscreen?.()
           .then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.("landscape").catch(() => {}));
     });
-    const hold = (id: string, dir: -1 | 1) => {
-      const el = $(id);
-      const down = (e: PointerEvent) => {
-        e.preventDefault();
-        el.setPointerCapture(e.pointerId);
-        el.classList.add("down");
-        this.net.send({ t: "move", dir });
-      };
-      const up = () => {
-        if (!el.classList.contains("down")) return;
-        el.classList.remove("down");
-        this.net.send({ t: "move", dir: 0 });
-      };
-      el.addEventListener("pointerdown", down);
-      el.addEventListener("pointerup", up);
-      el.addEventListener("pointercancel", up);
-      el.addEventListener("lostpointercapture", up);
-    };
-    hold("#move-left", -1);
-    hold("#move-right", 1);
-    $("#jump").addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      this.net.send({ t: "jump" });
-    });
+    this.bindStick();
     // Fire: press and hold to build speed, release to shoot (hitscan weapons shoot on release)
     const fire = $("#fire");
     fire.addEventListener("pointerdown", (e) => {
@@ -573,6 +596,56 @@ class App {
       if (this.lobby) this.renderLobby();
     });
     for (const sel of ["#hud", "#lobby"]) $(sel).addEventListener("contextmenu", (e) => e.preventDefault());
+  }
+
+  /** One thumb control: sideways walks, a push up jumps (once per push), release stops. */
+  private bindStick(): void {
+    const stick = $("#stick");
+    let origin: { x: number; y: number } | null = null;
+    let armed = true;
+    let dir: -1 | 0 | 1 = 0;
+    const knob = (x: number, y: number) => {
+      stick.style.setProperty("--kx", `${x}px`);
+      stick.style.setProperty("--ky", `${y}px`);
+    };
+    const update = (e: PointerEvent) => {
+      if (!origin) return;
+      const r = readStick(e.clientX - origin.x, e.clientY - origin.y, armed);
+      armed = r.armed;
+      knob(r.kx, r.ky);
+      if (r.dir !== dir) {
+        dir = r.dir;
+        this.net.send({ t: "move", dir });
+      }
+      if (r.jump) {
+        this.net.send({ t: "jump" });
+        stick.classList.add("jumped");
+        setTimeout(() => stick.classList.remove("jumped"), 160);
+      }
+    };
+    const end = () => {
+      if (!origin) return;
+      origin = null;
+      armed = true;
+      stick.classList.remove("active");
+      knob(0, 0);
+      if (dir !== 0) {
+        dir = 0;
+        this.net.send({ t: "move", dir: 0 });
+      }
+    };
+    stick.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      stick.setPointerCapture(e.pointerId);
+      const r = stick.getBoundingClientRect();
+      origin = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      stick.classList.add("active");
+      update(e);
+    });
+    stick.addEventListener("pointermove", update);
+    stick.addEventListener("pointerup", end);
+    stick.addEventListener("pointercancel", end);
+    stick.addEventListener("lostpointercapture", end);
   }
 
   private ready(): boolean {
@@ -637,6 +710,23 @@ class App {
     return v && this.seat !== null ? v.worms.find((w) => w.id === v.snap.seats[this.seat!].active) : undefined;
   }
 
+  private ownWormAt(x: number, y: number): number | null {
+    const v = this.viewNow();
+    if (!v || this.seat === null) return null;
+    let best: number | null = null;
+    let bestD = 30;
+    for (const w of v.worms) {
+      if (w.team !== this.seat || !w.alive || w.id === v.snap.seats[this.seat].active) continue;
+      const s = this.r.toScreen(w.x, w.y);
+      const d = Math.hypot(s.x - x, s.y - y);
+      if (d < bestD) {
+        bestD = d;
+        best = w.id;
+      }
+    }
+    return best;
+  }
+
   private aimFrom(x: number, y: number): void {
     const w = this.activeWorm();
     if (!w) return;
@@ -664,6 +754,13 @@ class App {
         const [a, b] = [...this.pointers.values()];
         this.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
       } else if (this.pointers.size === 1 && this.canAct()) {
+        // tapping another of my worms takes control of it; anywhere else aims
+        const pick = this.ownWormAt(e.clientX, e.clientY);
+        if (pick !== null) {
+          this.net.send({ t: "select", id: pick });
+          this.sfx.blip(620, 0.05, 0.08);
+          return;
+        }
         this.aiming = true;
         this.aimFrom(e.clientX, e.clientY);
       }
@@ -723,6 +820,17 @@ class App {
       } else if (e.code === "Enter" || e.code === "KeyJ") this.net.send({ t: "jump" });
       else if (e.code === "Space") this.startCharge();
       else if (/^Digit[1-4]$/.test(e.code)) this.chooseWeapon(WEAPON_ORDER[Number(e.code.slice(5)) - 1]);
+      else if (e.code === "Tab") {
+        // Tab: control my next living worm
+        e.preventDefault();
+        const s = this.cur?.s;
+        if (s && this.seat !== null) {
+          const mine = s.worms.filter((w) => w.team === this.seat && w.alive);
+          const at = mine.findIndex((w) => w.id === s.seats[this.seat!].active);
+          const next = mine[(at + 1) % mine.length];
+          if (next) this.net.send({ t: "select", id: next.id });
+        }
+      }
       if (e.code === "Space" || e.code.startsWith("Arrow")) e.preventDefault();
     });
     window.addEventListener("keyup", (e) => {
@@ -763,7 +871,7 @@ class App {
     });
     const live = this.canAct(cur.s);
 
-    const aims: [number, number] = [cur.s.seats[0].aim, cur.s.seats[1].aim];
+    const aims = cur.s.seats.map((x) => x.aim);
     if (this.seat !== null) aims[this.seat] = this.myAim;
     return {
       snap: cur.s,
@@ -772,7 +880,7 @@ class App {
       names: this.names,
       seat: this.seat,
       aims,
-      actives: [cur.s.seats[0].active, cur.s.seats[1].active],
+      actives: cur.s.seats.map((x) => x.active),
       power: live ? this.chargeLevel() : null,
     };
   }
@@ -835,6 +943,17 @@ class App {
         this.prev = null;
         this.cur = { s, t: performance.now() };
         this.onState(s);
+      },
+      wormScreen: (id: number) => {
+        const w = this.viewNow()?.worms.find((x) => x.id === id);
+        return w ? this.r.toScreen(w.x, w.y) : null;
+      },
+      lookAt: (id: number) => {
+        const w = this.viewNow()?.worms.find((x) => x.id === id);
+        if (!w) return;
+        this.r.cam.x = w.x;
+        this.r.cam.y = w.y - 40;
+        this.r.manualUntil = performance.now() + 3000;
       },
       activeScreen: () => {
         const w = this.activeWorm();

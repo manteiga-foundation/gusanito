@@ -48,13 +48,60 @@ describe("lobby: Ready Player One / Ready Player Two", () => {
     }
   });
 
-  test("a third player is turned away and an unknown code is reported", () => {
+  test("up to six players fit; a seventh is turned away and an unknown code is reported", () => {
     const { rooms, code } = pair();
+    const more = ["Cy", "Di", "Ed", "Flo"].map((n) => {
+      const c = client(rooms);
+      c.send({ t: "join", code, name: n });
+      return c;
+    });
+    expect(more.map((c) => c.last("joined")!.seat)).toEqual([2, 3, 4, 5]);
+    const l = more[3].last("lobby")!;
+    expect(l.players.map((p) => p?.name)).toEqual(["Ada", "Bo", "Cy", "Di", "Ed", "Flo"]);
+    expect(new Set(l.players.map((p) => p!.color)).size).toBe(6);
+    const g = client(rooms);
+    g.send({ t: "join", code, name: "Gus" });
+    expect(g.last("error")!.reason).toBe("full");
+    g.send({ t: "join", code: "ZZZZ", name: "Gus" });
+    expect(g.last("error")!.reason).toBe("not-found");
+  });
+
+  test("three players: the match waits for everyone, then brings three teams of worms", () => {
+    const { rooms, a, b, code } = pair();
     const c = client(rooms);
     c.send({ t: "join", code, name: "Cy" });
-    expect(c.last("error")!.reason).toBe("full");
-    c.send({ t: "join", code: "ZZZZ", name: "Cy" });
-    expect(c.last("error")!.reason).toBe("not-found");
+    a.send({ t: "ready", ready: true });
+    b.send({ t: "ready", ready: true });
+    expect(a.count("start")).toBe(0);
+    c.send({ t: "ready", ready: true });
+    const s = c.last("start")!;
+    expect(s.team).toBe(2);
+    expect(s.names).toEqual(["Ada", "Bo", "Cy"]);
+    expect(s.colors.length).toBe(3);
+    expect(rooms.get(code)!.game!.worms.length).toBe(9);
+  });
+
+  test("a lone ready player does not start a match", () => {
+    const rooms = new Rooms();
+    const a = client(rooms);
+    a.send({ t: "create", name: "Ada" });
+    a.send({ t: "ready", ready: true });
+    expect(a.count("start")).toBe(0);
+  });
+
+  test("someone joining mid-match waits in the lobby for the next round", () => {
+    const { rooms, a, b, code } = pair();
+    a.send({ t: "ready", ready: true });
+    b.send({ t: "ready", ready: true });
+    const c = client(rooms);
+    c.send({ t: "join", code, name: "Cy" });
+    expect(c.last("joined")!.seat).toBe(2);
+    expect(c.count("start")).toBe(0);
+    const l = c.last("lobby")!;
+    expect(l.playing).toBe(true);
+    expect(l.players[2]).toMatchObject({ name: "Cy", inMatch: false });
+    expect(l.players[0]).toMatchObject({ inMatch: true });
+    expect(rooms.get(code)!.game!.worms.length).toBe(6);
   });
 
   test("the match starts only once both players are ready", () => {
@@ -88,6 +135,17 @@ describe("lobby: Ready Player One / Ready Player Two", () => {
     expect(g.activeWorm(1).x).toBeLessThan(x1);
     expect(a.count("state")).toBeGreaterThan(3);
     expect(b.last("state")!.s.worms.length).toBe(6);
+  });
+
+  test("worm selection travels from the player to their team", () => {
+    const { rooms, a, b, code } = pair();
+    a.send({ t: "ready", ready: true });
+    b.send({ t: "ready", ready: true });
+    const g = rooms.get(code)!.game!;
+    rooms.tick(3.1);
+    const mine = g.worms.filter((w) => w.team === 1);
+    b.send({ t: "select", id: mine[2].id });
+    expect(g.activeWorm(1).id).toBe(mine[2].id);
   });
 
   test("leaving the lobby frees the seat", () => {
@@ -132,7 +190,7 @@ describe("lobby: Ready Player One / Ready Player Two", () => {
     const l = a.last("lobby")!;
     expect(l.players[0]!.ready).toBe(false);
     expect(l.players[1]!.ready).toBe(false);
-    expect(l.wins).toEqual([1, 0]);
+    expect(l.wins).toEqual([1, 0, 0, 0, 0, 0]);
     a.send({ t: "ready", ready: true });
     b.send({ t: "ready", ready: true });
     expect(a.count("start")).toBe(2);
@@ -186,6 +244,7 @@ describe("player colours", () => {
     a.send({ t: "ready", ready: true });
     b.send({ t: "ready", ready: true });
     expect(a.last("start")!.colors).toEqual(["coral", "rose"]);
+    expect(a.last("start")!.team).toBe(0);
     a.send({ t: "color", color: "sky" });
     expect(rooms.get(code)!.seats[0]!.color).toBe("coral");
   });

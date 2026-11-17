@@ -94,6 +94,30 @@ test("two phones meet in the Ready Player One / Two lobby and play at the same t
   await a.screenshot({ path: `${SHOTS}/game-p1.png` });
   await b.screenshot({ path: `${SHOTS}/game-p2.png` });
 
+  // the joystick walks and jumps
+  const stick = (await a.locator("#stick").boundingBox())!;
+  const sc = { x: stick.x + stick.width / 2, y: stick.y + stick.height / 2 };
+  const wormX = async () => { const s = await snap(a); return s.worms.find((w: any) => w.id === s.seats[0].active).x; };
+  const wormY = async () => { const s = await snap(a); return s.worms.find((w: any) => w.id === s.seats[0].active).y; };
+  const startX = await wormX();
+  await a.mouse.move(sc.x, sc.y);
+  await a.mouse.down();
+  await a.mouse.move(sc.x + 40, sc.y, { steps: 3 });
+  await a.waitForTimeout(700);
+  await a.mouse.up();
+  const walked = (await wormX()) - startX;
+  expect(walked).not.toBe(0);
+  const startY = await wormY();
+  await a.mouse.move(sc.x, sc.y);
+  await a.mouse.down();
+  await a.mouse.move(sc.x, sc.y - 45, { steps: 2 });
+  await a.waitForFunction((y0) => {
+    const s = (window as any).__wriggle.snapshot();
+    return s.worms.find((w: any) => w.id === s.seats[0].active).y < y0 - 8;
+  }, startY, { timeout: 2000 });
+  await a.mouse.up();
+  await a.waitForTimeout(1200);
+
   // both players aim by dragging and fire in the same moment
   const firstA = (await snap(a)).seats[0].active;
   const firstB = (await snap(b)).seats[1].active;
@@ -130,26 +154,40 @@ test("two phones meet in the Ready Player One / Two lobby and play at the same t
   const pa = await a.evaluate(() => (window as any).__wriggle.lastFirePower());
   expect(pa).toBeGreaterThan(650 / 1300 - 0.05);
   expect(pa).toBeLessThanOrEqual(Math.min(1, heldMs / 1300 + 0.05));
+  // both fired in the same moment: both weapons are reloading together (a shot may burst on a nearby
+  // overhang at once on some maps, so shots in the air together is not a reliable signal)
   await a.waitForFunction(() => {
     const s = (window as any).__wriggle.snapshot();
-    return new Set(s.proj.map((p: any) => p.team)).size === 2;
+    return s.seats[0].reload > 0 && s.seats[1].reload > 0;
   }, null, { timeout: 3000 });
   await a.screenshot({ path: `${SHOTS}/game-both-fired.png` });
 
-  // each shooter is handed their next worm at once, and the Fire button shows the reload
+  // each shooter keeps the same worm, and the Fire button shows the reload
   const s1 = await snap(a);
-  expect(s1.seats[0].active).not.toBe(firstA);
-  expect(s1.seats[1].active).not.toBe(firstB);
+  expect(s1.seats[0].active).toBe(firstA);
+  expect(s1.seats[1].active).toBe(firstB);
   expect(await a.locator("#fire").evaluate((e) => e.classList.contains("reloading"))).toBe(true);
   await a.waitForFunction(() => !document.querySelector("#fire")!.classList.contains("reloading"), null, { timeout: 5000 });
 
   // holding all the way fires by itself at full power
-  const before = (await snap(a)).seats[0].active;
   await a.mouse.move(fa.x, fa.y);
   await a.mouse.down();
-  await a.waitForFunction((id) => (window as any).__wriggle.snapshot().seats[0].active !== id, before, { timeout: 4000 });
+  await a.waitForFunction(() => (window as any).__wriggle.snapshot().seats[0].reload > 0, null, { timeout: 4000 });
   await a.mouse.up();
   expect(await a.evaluate(() => (window as any).__wriggle.lastFirePower())).toBe(1);
+
+  // tapping another of my worms takes control of it
+  const pick = await a.evaluate(() => {
+    const w = (window as any).__wriggle;
+    const s = w.snapshot();
+    const other = s.worms.find((x: any) => x.team === 0 && x.alive && x.id !== s.seats[0].active);
+    return { id: other.id, at: w.wormScreen(other.id) };
+  });
+  await a.evaluate((id) => (window as any).__wriggle.lookAt(id), pick.id);
+  await a.waitForTimeout(400);
+  const at = await a.evaluate((id) => (window as any).__wriggle.wormScreen(id), pick.id);
+  await a.mouse.click(at.x, at.y);
+  await a.waitForFunction((id) => (window as any).__wriggle.snapshot().seats[0].active === id, pick.id, { timeout: 3000 });
 
   // the weapon tray works at any moment
   await b.tap("#weapon");
@@ -188,11 +226,11 @@ async function startMatch(hud: string): Promise<[Page, Page]> {
 }
 
 test("the HUD makes clear who is winning", async () => {
-  for (const hud of ["bar", "cards"]) {
+  for (const hud of ["board"]) {
     const [a, b] = await startMatch(hud);
     expect(await a.textContent("#lead")).toBe("Dead even");
-    expect(await a.textContent(".team.t0 .team-total")).toBe("300");
-    expect(await a.locator(".team.t1 .pip.alive").count()).toBe(3);
+    expect(await a.textContent('.row[data-team="0"] .team-total')).toBe("300");
+    expect(await a.locator('.row[data-team="1"] .pip.alive').count()).toBe(3);
 
     // Bo's team takes 170 damage: one worm at 30, one drowned
     const s = await snap(a);
@@ -204,15 +242,17 @@ test("the HUD makes clear who is winning", async () => {
 
     expect(await a.textContent("#lead")).toBe("You lead by 170");
     expect(await b.textContent("#lead")).toBe("Ada leads by 170");
-    expect(await a.textContent(".team.t1 .team-total")).toBe("130");
-    expect(await a.locator(".team.t1 .pip.alive").count()).toBe(2);
-    expect(await a.locator(".team.t0").evaluate((e) => e.classList.contains("leading"))).toBe(true);
-    expect(await a.locator(".team.t1").evaluate((e) => e.classList.contains("leading"))).toBe(false);
-    if (hud === "bar") {
-      // the fill animates; wait for it to settle on Ada's share (300 of 430)
+    expect(await a.textContent('.row[data-team="1"] .team-total')).toBe("130");
+    expect(await a.locator('.row[data-team="1"] .pip.alive').count()).toBe(2);
+    expect(await a.locator('.row[data-team="0"]').evaluate((e) => e.classList.contains("leading"))).toBe(true);
+    expect(await a.locator('.row[data-team="1"]').evaluate((e) => e.classList.contains("leading"))).toBe(false);
+    // the leader is ranked first on the board
+    expect(await a.locator('.row[data-team="0"]').evaluate((e) => getComputedStyle(e).order)).toBe("0");
+    {
+      // the shared bar animates; wait for it to settle on Ada's share (300 of 430)
       await a.waitForFunction(() => {
         const bar = document.querySelector("#tug")!.getBoundingClientRect();
-        const left = document.querySelector("#tug .fill.t0")!.getBoundingClientRect();
+        const left = document.querySelector('#tug .seg[data-team="0"]')!.getBoundingClientRect();
         const share = left.width / bar.width;
         return share > 0.66 && share < 0.73;
       }, null, { timeout: 3000 });
@@ -238,15 +278,14 @@ test("each player chooses a colour in the lobby and it carries into the match", 
   await a.waitForFunction(() => document.querySelector('[data-seat="1"] .seat-name')?.textContent === "Bo");
 
   // a palette on your own seat only, with the opponent's colour unavailable
-  expect(await a.locator('[data-seat="0"] .swatch').count()).toBe(6);
-  expect(await a.locator('[data-seat="1"] .swatch').count()).toBe(0);
-  expect(await a.locator('[data-seat="0"] .swatch[data-color="teal"]').isDisabled()).toBe(true);
-  for (const box of await a.locator('[data-seat="0"] .swatch').all()) expect((await box.boundingBox())!.height).toBeGreaterThanOrEqual(30);
+  expect(await a.locator("#my-colors .swatch").count()).toBe(6);
+  expect(await a.locator('#my-colors .swatch[data-color="teal"]').isDisabled()).toBe(true);
+  for (const box of await a.locator("#my-colors .swatch").all()) expect((await box.boundingBox())!.height).toBeGreaterThanOrEqual(30);
 
-  await a.tap('[data-seat="0"] .swatch[data-color="lime"]');
+  await a.tap('#my-colors .swatch[data-color="lime"]');
   await b.waitForFunction(() => document.querySelector('[data-seat="0"]')?.getAttribute("data-color") === "lime");
-  expect(await b.locator('[data-seat="1"] .swatch[data-color="lime"]').isDisabled()).toBe(true);
-  await b.tap('[data-seat="1"] .swatch[data-color="rose"]');
+  expect(await b.locator('#my-colors .swatch[data-color="lime"]').isDisabled()).toBe(true);
+  await b.tap('#my-colors .swatch[data-color="rose"]');
   await a.waitForFunction(() => document.querySelector('[data-seat="1"]')?.getAttribute("data-color") === "rose");
   await a.waitForTimeout(300);
   await a.screenshot({ path: `${SHOTS}/lobby-colors.png` });
@@ -258,9 +297,9 @@ test("each player chooses a colour in the lobby and it carries into the match", 
 
   // the HUD and the worms' headbands use the chosen colours on both phones
   for (const p of [a, b]) {
-    expect(await p.evaluate(() => getComputedStyle(document.querySelector(".team.t0 .team-name")!).color)).toBe("rgb(155, 216, 78)");
-    expect(await p.evaluate(() => getComputedStyle(document.querySelector(".team.t1 .team-name")!).color)).toBe("rgb(255, 92, 154)");
-    expect(await p.evaluate(() => (window as any).__wriggle.teamColors())).toEqual(["#9bd84e", "#ff5c9a"]);
+    expect(await p.evaluate(() => getComputedStyle(document.querySelector('.row[data-team="0"] .team-name')!).color)).toBe("rgb(155, 216, 78)");
+    expect(await p.evaluate(() => getComputedStyle(document.querySelector('.row[data-team="1"] .team-name')!).color)).toBe("rgb(255, 92, 154)");
+    expect(await p.evaluate(() => (window as any).__wriggle.teamColors().slice(0, 2))).toEqual(["#9bd84e", "#ff5c9a"]);
   }
   await a.waitForTimeout(600);
   await a.screenshot({ path: `${SHOTS}/game-colors.png` });
@@ -331,3 +370,64 @@ test("an invite link leads with Join, not Create", async () => {
   await c.context().close();
   expect(errors).toEqual([]);
 }, 40000);
+
+test("phone controls never overlap, in either orientation", async () => {
+  for (const [w, h] of [[390, 844], [360, 740], [375, 667], [844, 390], [667, 375], [740, 360]]) {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    const p = await ctx.newPage();
+    await p.goto(url + "/");
+    const r = await p.evaluate(() => {
+      document.querySelector("#home")!.setAttribute("hidden", "");
+      document.querySelector("#hud")!.removeAttribute("hidden");
+      const boxes = ["stick", "weapon", "fire"].map((id) => document.getElementById(id)!.getBoundingClientRect());
+      const hit = (a: DOMRect, c: DOMRect) => a.left < c.right && c.left < a.right && a.top < c.bottom && c.top < a.bottom;
+      return {
+        overlaps: [hit(boxes[0], boxes[1]), hit(boxes[0], boxes[2]), hit(boxes[1], boxes[2])].filter(Boolean).length,
+        inside: boxes.every((b) => b.width > 0 && b.left >= 0 && b.right <= innerWidth && b.bottom <= innerHeight),
+        legacy: ["move-left", "move-right", "jump"].filter((id) => document.getElementById(id)).length,
+        stick: boxes[0].width,
+      };
+    });
+    expect({ size: `${w}x${h}`, ...r }).toEqual({ size: `${w}x${h}`, overlaps: 0, inside: true, legacy: 0, stick: r.stick });
+    expect(r.stick).toBeGreaterThanOrEqual(96);
+    await ctx.close();
+  }
+}, 60000);
+
+test("three phones play one match: three teams, three colours, one board", async () => {
+  const a = await open();
+  await a.fill("#name", "Ada");
+  await a.tap("#create");
+  await a.waitForSelector("#lobby:not([hidden])");
+  const code = (await a.textContent("#room-code"))!.trim();
+  const others: Page[] = [];
+  for (const n of ["Bo", "Cy"]) {
+    const p = await open(phone, `/?room=${code}`);
+    await p.fill("#name", n);
+    await p.tap("#join-cta");
+    await p.waitForSelector("#lobby:not([hidden])");
+    others.push(p);
+  }
+  const [b, c] = others;
+  await a.waitForFunction(() => document.querySelectorAll("#seats .seat:not(.open)").length === 3);
+  expect(await a.textContent('[data-seat="2"] .seat-title')).toBe("Ready Player Three");
+  expect(await a.locator("#seats .seat.open").count()).toBe(1);
+  // everything in the lobby fits a short landscape phone: Leave is on screen
+  const leave = (await a.locator("#leave").boundingBox())!;
+  expect(leave.y + leave.height).toBeLessThanOrEqual(390);
+  await a.screenshot({ path: `${SHOTS}/lobby-three.png` });
+  for (const p of [a, b]) await p.tap("#ready");
+  await a.waitForTimeout(300);
+  expect(await a.evaluate(() => (window as any).__wriggle.snapshot())).toBeNull();
+  await c.tap("#ready");
+  for (const p of [a, b, c]) await p.waitForFunction(() => (window as any).__wriggle.snapshot()?.worms?.length === 9);
+  expect(await c.evaluate(() => (window as any).__wriggle.seat())).toBe(2);
+  expect(await a.locator("#board .row").count()).toBe(3);
+  expect(await a.locator("#tug .seg").count()).toBe(3);
+  const colors = await a.evaluate(() => (window as any).__wriggle.teamColors().slice(0, 3));
+  expect(new Set(colors).size).toBe(3);
+  await a.waitForTimeout(3500);
+  await a.screenshot({ path: `${SHOTS}/game-three.png` });
+  expect(errors).toEqual([]);
+  for (const p of [a, b, c]) await p.context().close();
+}, 60000);

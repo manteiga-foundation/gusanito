@@ -2,42 +2,50 @@ import type { Seat, Snapshot } from "../shared/protocol.ts";
 
 export interface Standings {
   /** remaining health per team (dead worms count zero) */
-  hp: [number, number];
+  hp: number[];
   /** worms still standing per team */
-  alive: [number, number];
+  alive: number[];
   /** worms per team at the start */
-  size: [number, number];
-  /** null when the board is even */
+  size: number[];
+  /** null when the top of the board is even */
   leader: Seat | null;
-  /** health difference between the teams */
+  /** health gap between the leader and the runner-up */
   margin: number;
-  /** team one's share of all remaining health, 0..1 (0.5 when nothing is left) */
-  share: number;
+  /** each team's share of all remaining health, summing to 1 (equal shares when nothing is left) */
+  share: number[];
+  /** teams from first to last */
+  order: number[];
 }
 
-export function standings(s: Pick<Snapshot, "worms">): Standings {
-  const hp: [number, number] = [0, 0];
-  const alive: [number, number] = [0, 0];
-  const size: [number, number] = [0, 0];
+export function standings(s: Pick<Snapshot, "worms">, teamCount?: number): Standings {
+  const n = teamCount ?? s.worms.reduce((m, w) => Math.max(m, w.team + 1), 0);
+  const hp = Array(n).fill(0);
+  const alive = Array(n).fill(0);
+  const size = Array(n).fill(0);
   for (const w of s.worms) {
     size[w.team]++;
     if (!w.alive) continue;
     alive[w.team]++;
     hp[w.team] += Math.max(0, w.hp);
   }
-  const margin = Math.abs(hp[0] - hp[1]);
+  const order = [...Array(n).keys()].sort((a, b) => hp[b] - hp[a] || alive[b] - alive[a] || a - b);
+  const [first, second] = order;
   let leader: Seat | null = null;
-  if (hp[0] !== hp[1]) leader = hp[0] > hp[1] ? 0 : 1;
-  else if (alive[0] !== alive[1]) leader = alive[0] > alive[1] ? 0 : 1;
-  const total = hp[0] + hp[1];
-  return { hp, alive, size, leader, margin, share: total > 0 ? hp[0] / total : 0.5 };
+  let margin = 0;
+  if (second !== undefined && (hp[first] !== hp[second] || alive[first] !== alive[second])) {
+    leader = first;
+    margin = hp[first] - hp[second];
+  }
+  const total = hp.reduce((a, b) => a + b, 0);
+  const share = hp.map((h) => (total > 0 ? h / total : 1 / Math.max(1, n)));
+  return { hp, alive, size, leader, margin, share, order };
 }
 
 /** One short line, worded for the player reading it. */
-export function leadText(st: Standings, names: [string, string], seat: Seat | null): string {
+export function leadText(st: Standings, names: string[], seat: Seat | null): string {
   if (st.leader === null) return "Dead even";
   const who = st.leader === seat ? "You lead" : `${names[st.leader]} leads`;
   if (st.margin > 0) return `${who} by ${st.margin}`;
-  const other = (1 - st.leader) as Seat;
-  return `${who}, ${st.alive[st.leader]} worms to ${st.alive[other]}`;
+  const runnerUp = st.order[1];
+  return `${who}, ${st.alive[st.leader]} worms to ${st.alive[runnerUp]}`;
 }

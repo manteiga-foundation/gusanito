@@ -4,7 +4,7 @@ import { Terrain } from "../shared/terrain.ts";
 import { wormLabel } from "./director.ts";
 
 /** Team colours, replaced in place when players pick theirs in the lobby. */
-export const TEAM: [string, string] = ["#ff7a59", "#3fc8b6"];
+export const TEAM: string[] = ["#ff7a59", "#3fc8b6", "#5aa9ff", "#9bd84e", "#ff5c9a", "#ffd447"];
 
 const hash = (x: number, y: number) => {
   let h = (x * 374761393 + y * 668265263) | 0;
@@ -139,13 +139,13 @@ export interface View {
   snap: Snapshot;
   worms: WormView[];
   proj: ProjView[];
-  names: [string, string];
-  /** the reader's seat (null for spectators) */
+  names: string[];
+  /** the reader's team (null for spectators) */
   seat: Seat | null;
-  /** each player's aim; the reader's own is local so it never lags */
-  aims: [number, number];
-  /** each player's controlled worm */
-  actives: [number, number];
+  /** each team's aim; the reader's own is local so it never lags */
+  aims: number[];
+  /** each team's controlled worm */
+  actives: number[];
   /** 0..1 power for the reader's own shot, null when they cannot act */
   power: number | null;
 }

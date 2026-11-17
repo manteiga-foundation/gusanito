@@ -105,33 +105,43 @@ describe("both players at once", () => {
     expect(new Set(s.proj.map((p) => p.team))).toEqual(new Set([0, 1]));
   });
 
-  test("firing hands control straight to the shooter's next worm; the other player is unaffected", () => {
+  test("firing keeps the same worm under control", () => {
     const g = flatGame({ spawns: [[200, 400, 600], [1200, 1400, 1600]] });
-    const before1 = g.activeWorm(1).id;
     const first = g.activeWorm(0).id;
-    g.handle(0, { t: "aim", angle: -Math.PI / 3 });
+    g.handle(0, { t: "aim", angle: -Math.PI / 4 });
     g.handle(0, { t: "fire", power: 0.5 });
-    const next = g.activeWorm(0);
-    expect(next.id).not.toBe(first);
-    expect(next.team).toBe(0);
-    expect(g.activeWorm(1).id).toBe(before1);
-    // the new worm moves at once, without waiting for the shot to land
-    g.handle(0, { t: "move", dir: 1 });
-    const x0 = next.x;
-    g.run(0.5);
-    expect(next.x).toBeGreaterThan(x0 + 15);
+    expect(g.activeWorm(0).id).toBe(first);
+    g.run(WEAPONS.rocket.reload + 0.1);
+    g.handle(0, { t: "fire", power: 0.5 });
+    expect(g.activeWorm(0).id).toBe(first);
+    expect(g.drainEvents().filter((e) => e.t === "fire").length).toBe(2);
   });
 
-  test("control cycles through the living worms of the team", () => {
-    const g = flatGame({ spawns: [[200, 400], [1200, 1400]] });
-    const order: number[] = [];
-    for (let i = 0; i < 3; i++) {
-      order.push(g.activeWorm(0).x);
-      g.handle(0, { t: "aim", angle: -Math.PI / 4 });
-      g.handle(0, { t: "fire", power: 0.5 });
-      g.run(WEAPONS.rocket.reload + 0.1);
-    }
-    expect(order.map(Math.round)).toEqual([200, 400, 200]);
+  test("a player switches by choosing another of their own living worms", () => {
+    const g = flatGame({ spawns: [[200, 400, 600], [1200, 1400, 1600]] });
+    const [, second, third] = team(g, 0);
+    g.handle(0, { t: "select", id: third.id });
+    expect(g.activeWorm(0).id).toBe(third.id);
+    expect(g.drainEvents().some((e) => e.t === "switch" && e.seat === 0 && e.active === third.id)).toBe(true);
+    // never someone else's worm, never a dead one
+    g.handle(0, { t: "select", id: team(g, 1)[0].id });
+    expect(g.activeWorm(0).id).toBe(third.id);
+    second.alive = false;
+    g.handle(0, { t: "select", id: second.id });
+    expect(g.activeWorm(0).id).toBe(third.id);
+    // the other player is unaffected
+    expect(g.activeWorm(1).team).toBe(1);
+  });
+
+  test("a worm that is walking stops when its player switches away", () => {
+    const g = flatGame({ spawns: [[200, 600], [1200, 1600]] });
+    const [a, b] = team(g, 0);
+    g.handle(0, { t: "move", dir: 1 });
+    g.run(0.2);
+    g.handle(0, { t: "select", id: b.id });
+    const ax = a.x;
+    g.run(0.5);
+    expect(a.x).toBe(ax);
   });
 
   test("a weapon reloads before the same player can fire again", () => {
@@ -344,5 +354,67 @@ describe("endings", () => {
 
   test("the simulation ticks at a fixed step", () => {
     expect(TICK).toBeCloseTo(1 / 60, 6);
+  });
+});
+
+describe("more players, same map", () => {
+  test("each player brings three worms; six players fit on the same map", () => {
+    for (let seed = 1; seed <= 15; seed++) {
+      const names = ["A", "B", "C", "D", "E", "F"];
+      const g = new Game({ seed, names });
+      expect(g.worms.length).toBe(18);
+      for (let t = 0; t < 6; t++) expect(g.worms.filter((w) => w.team === t).length).toBe(3);
+      for (const w of g.worms) {
+        expect(g.terrain.solid(w.x, w.y)).toBe(false);
+        expect(w.y).toBeLessThan(WATER_Y - 20);
+      }
+      for (const a of g.worms)
+        for (const b of g.worms) if (a !== b) expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(40);
+      expect(g.terrain.w).toBe(2000);
+    }
+  });
+
+  test("every player controls their own worm at the same time", () => {
+    const g = new Game({ seed: 1, names: ["A", "B", "C"], terrain: Terrain.flat(500), spawns: [[300], [900], [1500]], wells: [], wind: 0, countdown: 0 });
+    const s = g.snapshot();
+    expect(s.seats.length).toBe(3);
+    g.handle(2, { t: "move", dir: -1 });
+    g.handle(0, { t: "move", dir: 1 });
+    g.run(1);
+    expect(g.activeWorm(2).x).toBeLessThan(1470);
+    expect(g.activeWorm(0).x).toBeGreaterThan(330);
+    expect(g.activeWorm(1).x).toBe(900);
+  });
+
+  test("the match goes on while two teams stand, and the last one wins", () => {
+    const g = new Game({ seed: 1, names: ["A", "B", "C"], terrain: Terrain.flat(500), spawns: [[300], [900], [1500]], wells: [], wind: 0, countdown: 0 });
+    g.terrain.clearRect(880, 0, 920, 1000);
+    g.run(3);
+    expect(g.phase).toBe("play");
+    g.terrain.clearRect(1480, 0, 1520, 1000);
+    g.run(3);
+    expect(g.phase).toBe("over");
+    expect(g.winner).toBe(0);
+  });
+
+  test("at the final whistle the healthiest of several teams wins; a tie at the top is a draw", () => {
+    const mk = () => new Game({ seed: 1, names: ["A", "B", "C"], terrain: Terrain.flat(500), spawns: [[300], [900], [1500]], wells: [], wind: 0, countdown: 0, matchSeconds: 3 });
+    const g = mk();
+    g.worms[0].hp = 40;
+    g.worms[1].hp = 70;
+    g.run(3.2);
+    expect(g.winner).toBe(2);
+    const h = mk();
+    h.worms[0].hp = 40;
+    h.run(3.2);
+    expect(h.winner).toBe(-1);
+  });
+
+  test("a player who forfeits loses their worms and the others play on", () => {
+    const g = new Game({ seed: 1, names: ["A", "B", "C"], terrain: Terrain.flat(500), spawns: [[300], [900], [1500]], wells: [], wind: 0, countdown: 0 });
+    g.forfeit(1);
+    g.run(0.1);
+    expect(g.worms.filter((w) => w.team === 1).every((w) => !w.alive)).toBe(true);
+    expect(g.phase).toBe("play");
   });
 });

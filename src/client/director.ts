@@ -20,14 +20,14 @@ export function charges(weapon: WeaponId): boolean {
 }
 
 /** Name and health for the label over a worm. */
-export function wormLabel(w: WormView, names: [string, string]): { name: string; frac: number; text: string } {
+export function wormLabel(w: WormView, names: string[]): { name: string; frac: number; text: string } {
   return { name: names[w.team], frac: Math.max(0, Math.min(1, w.hp / 100)), text: String(Math.max(0, w.hp)) };
 }
 
 interface Scene {
   worms: WormView[];
   proj: ProjView[];
-  actives: [number, number];
+  actives: number[];
 }
 
 /**

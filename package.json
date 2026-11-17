@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Two-player online artillery game with destructible terrain, wind and gravity wells. Plays on phones.",
+  "description": "Online artillery for 2 to 6 players with destructible terrain, wind and gravity wells. Plays on phones.",
   "license": "MIT",
   "scripts": {
     "dev": "bun run build && bun --watch src/server/main.ts",

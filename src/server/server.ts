@@ -22,8 +22,8 @@ export interface ServerOptions {
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const GENERIC = {
-  title: "Gusanito: two-player artillery",
-  description: "Destructible ground, shifting wind and gravity wells that bend every shot. Invite a friend and play in the browser. A Manteiga Foundation game.",
+  title: "Gusanito: artillery for 2 to 6 players",
+  description: "Up to six players at once on destructible ground, with shifting wind and gravity wells that bend every shot. Invite friends and play in the browser. A Manteiga Foundation game.",
 };
 
 /** Fills the page's link-preview tags; an invite link names the host and the match code. */
@@ -32,7 +32,7 @@ export function renderPage(template: string, origin: string, room: string | null
   const fields: Record<string, string> = {
     title: invite ? `${host} invites you to Gusanito` : GENERIC.title,
     description: invite
-      ? `Tap to join match ${room}. Two players, destructible ground, wind and gravity wells. A Manteiga Foundation game.`
+      ? `Tap to join match ${room}. Up to six players, destructible ground, wind and gravity wells. A Manteiga Foundation game.`
       : GENERIC.description,
     url: invite ? `${origin}/?room=${room}` : `${origin}/`,
     image: `${origin}/og-card.jpg`,

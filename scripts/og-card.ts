@@ -48,7 +48,7 @@ await shot.addStyleTag({ content: `
 await shot.evaluate(() => {
   const d = document.createElement("div");
   d.className = "og";
-  d.innerHTML = `<div class="og-in"><div class="og-eyebrow">Two-player artillery</div><h1 class="og-mark">Gusanito</h1>
+  d.innerHTML = `<div class="og-in"><div class="og-eyebrow">Artillery for 2 to 6 players</div><h1 class="og-mark">Gusanito</h1>
     <p class="og-sub">Destructible ground, shifting wind and gravity wells that bend every shot.</p>
     <div class="og-chip">Tap the link to join the match</div></div>
     <div class="og-foot">A Manteiga Foundation game</div>`;
