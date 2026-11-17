@@ -1,0 +1,17 @@
+import { chromium, devices } from "playwright";
+import { startServer } from "../src/server/server.ts";
+const s = startServer({ port: 0, staticDir: "dist", hostname: "127.0.0.1" });
+const t0 = Date.now();
+const b = await chromium.launch({ args: process.env.GL ? ["--use-gl=angle", "--use-angle=swiftshader"] : [] });
+console.log("launch ms", Date.now() - t0);
+const ctx = await b.newContext({ ...devices["iPhone 13"], viewport: { width: 844, height: 390 } });
+const p = await ctx.newPage();
+const t1 = Date.now();
+await p.goto(`http://127.0.0.1:${s.port}/`);
+console.log("goto ms", Date.now() - t1);
+const fps = await p.evaluate(() => new Promise((r) => { let n = 0; const s = performance.now(); const f = () => { n++; if (performance.now() - s < 2000) requestAnimationFrame(f); else r(n / 2); }; requestAnimationFrame(f); }));
+console.log("fps", fps);
+const t2 = Date.now();
+await p.locator("#create").isVisible();
+console.log("isVisible ms", Date.now() - t2);
+await b.close(); s.stop(true);

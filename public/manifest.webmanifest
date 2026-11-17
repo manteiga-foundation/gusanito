@@ -1,0 +1,11 @@
+{
+  "name": "Wriggle",
+  "short_name": "Wriggle",
+  "description": "Two-player online artillery with destructible ground, wind and gravity wells.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#1b1733",
+  "theme_color": "#1b1733",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
