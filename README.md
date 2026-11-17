@@ -85,7 +85,7 @@ The machine stops when idle and starts on the next request.
 
 ## Layout
 
-- `src/shared/` game simulation (terrain mask, worms, projectiles, wind, wells, turn flow) and the
+- `src/shared/` game simulation (terrain mask, worms, projectiles, wind, wells, match clock, two concurrent players) and the
   wire protocol; deterministic for a given seed and input sequence.
 - `src/server/` room and lobby logic (`rooms.ts`, transport-independent) and the Bun HTTP and
   WebSocket server. The server is authoritative and streams 30 snapshots per second.
