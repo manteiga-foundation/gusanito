@@ -155,6 +155,10 @@ class App {
         err.hidden = false;
         err.textContent = m.reason === "full" ? "That match already has two players." : m.reason === "not-found" ? "No match with that code. Check it with your friend." : "Something went wrong. Try again.";
         if (m.reason === "not-found" && this.session) this.saveSession(null);
+        if (this.invited) {
+          this.setInvited(null);
+          history.replaceState(null, "", "/");
+        }
         this.show("home");
         break;
       }
@@ -172,12 +176,17 @@ class App {
     const name = $<HTMLInputElement>("#name");
     name.value = localStorage.getItem(NAME_KEY) ?? "";
     const code = $<HTMLInputElement>("#code");
-    const room = new URLSearchParams(location.search).get("room");
-    if (room) {
-      code.value = room.toUpperCase().slice(0, 4);
-      $("#join").classList.add("primary");
-      $("#create").classList.remove("primary");
-    }
+    const room = new URLSearchParams(location.search).get("room")?.toUpperCase() ?? "";
+    if (/^[A-Z]{4}$/.test(room)) this.setInvited(room);
+    $("#join-cta").addEventListener("click", () => {
+      this.sfx.unlock();
+      this.wantsJoin = { kind: "join", code: code.value };
+      if (this.net.connected) this.sendWanted();
+    });
+    $("#create-instead").addEventListener("click", () => {
+      this.setInvited(null);
+      history.replaceState(null, "", "/");
+    });
     code.addEventListener("input", () => (code.value = code.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4)));
     $("#create").addEventListener("click", () => {
       this.sfx.unlock();
@@ -199,7 +208,25 @@ class App {
     };
     $("#join").addEventListener("click", join);
     code.addEventListener("keydown", (e) => e.key === "Enter" && join());
-    name.addEventListener("keydown", (e) => e.key === "Enter" && (room ? join() : $("#create").click()));
+    name.addEventListener("keydown", (e) => e.key === "Enter" && (this.invited ? $("#join-cta").click() : $("#create").click()));
+  }
+
+  private invited = false;
+
+  /** Opened from an invite link: Join leads, creating a new match steps back to a quiet link. */
+  private setInvited(code: string | null): void {
+    this.invited = code !== null;
+    $<HTMLInputElement>("#code").value = code ?? "";
+    const cta = $("#join-cta");
+    cta.hidden = !this.invited;
+    cta.textContent = `Join match ${code ?? ""}`;
+    $("#create").hidden = this.invited;
+    $(".home-panel .or").hidden = this.invited;
+    $(".home-panel .join-row").hidden = this.invited;
+    $("#create-instead").hidden = !this.invited;
+    // the server names the host in the page's preview title
+    const host = document.querySelector('meta[property="og:title"]')?.getAttribute("content")?.match(/^(.+) invites you to Wriggle$/)?.[1];
+    $("#home-eyebrow").textContent = this.invited && host ? `${host} invites you` : this.invited ? "You are invited" : "Two-player artillery";
   }
 
   private bindLobby(): void {

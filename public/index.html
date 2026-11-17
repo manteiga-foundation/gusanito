@@ -33,19 +33,21 @@
 
 <main id="home" class="screen">
   <div class="panel home-panel">
-    <div class="eyebrow">Two-player artillery</div>
+    <div class="eyebrow" id="home-eyebrow">Two-player artillery</div>
     <h1 class="wordmark">Wriggle</h1>
     <p class="sub">Destructible ground, shifting wind, and gravity wells that bend every shot.</p>
     <label class="field">
       <span>Your name</span>
       <input id="name" maxlength="16" autocomplete="nickname" placeholder="Player" enterkeyhint="go">
     </label>
+    <button id="join-cta" class="btn primary" hidden>Join match</button>
     <button id="create" class="btn primary">Create match</button>
     <div class="or"><span>or join a friend</span></div>
     <div class="join-row">
       <input id="code" maxlength="4" placeholder="CODE" autocapitalize="characters" autocomplete="off" spellcheck="false" aria-label="Match code">
       <button id="join" class="btn">Join</button>
     </div>
+    <button id="create-instead" class="link" hidden>Start a new match instead</button>
     <p id="home-error" class="error" role="alert" hidden></p>
     <p id="credit" class="credit">A <a href="https://manteiga.org" target="_blank" rel="noopener">Manteiga Foundation</a> game</p>
   </div>

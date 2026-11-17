@@ -142,6 +142,7 @@ input::placeholder { color: var(--ink-faint); }
 .field span { font-size: 12px; color: var(--ink-dim); font-weight: 600; }
 .or { display: flex; align-items: center; gap: 10px; color: var(--ink-faint); font-size: 12px; }
 .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+#create-instead { justify-self: center; }
 .join-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 #code { text-transform: uppercase; letter-spacing: 0.3em; text-align: center; }
 .error { margin: 0; color: var(--danger); font-size: 13px; }
@@ -602,7 +603,8 @@ body[data-hud="cards"] .corner { top: calc(92px + var(--safe-t)); }
   .home-panel .wordmark { grid-row: 2; }
   .home-panel .sub { grid-row: 3 / span 2; align-self: start; }
   .home-panel .field { grid-column: 2; grid-row: 1 / span 2; }
-  .home-panel #create { grid-column: 2; grid-row: 3; }
+  .home-panel #create, .home-panel #join-cta { grid-column: 2; grid-row: 3; }
+  .home-panel #create-instead { grid-column: 2; grid-row: 4; }
   .home-panel .or { grid-column: 2; grid-row: 4; }
   .home-panel .join-row { grid-column: 2; grid-row: 5; }
   .home-panel .error { grid-column: 1 / -1; }

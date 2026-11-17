@@ -63,7 +63,7 @@ test("two phones meet in the Ready Player One / Two lobby and play at the same t
 
   const b = await open(phone, `/?room=${code}`);
   await b.fill("#name", "Bo");
-  await b.tap("#join");
+  await b.tap("#join-cta");
   await b.waitForSelector("#lobby:not([hidden])");
 
   for (const p of [a, b]) {
@@ -135,7 +135,7 @@ async function startMatch(hud: string): Promise<[Page, Page]> {
   const code = (await a.textContent("#room-code"))!.trim();
   const b = await open(phone, `/?room=${code}&hud=${hud}`);
   await b.fill("#name", "Bo");
-  await b.tap("#join");
+  await b.tap("#join-cta");
   await b.waitForSelector("#lobby:not([hidden])");
   await a.waitForFunction(() => document.querySelector('[data-seat="1"] .seat-name')?.textContent === "Bo");
   await a.tap("#ready");
@@ -192,7 +192,7 @@ test("each player chooses a colour in the lobby and it carries into the match", 
   const code = (await a.textContent("#room-code"))!.trim();
   const b = await open(phone, `/?room=${code}`);
   await b.fill("#name", "Bo");
-  await b.tap("#join");
+  await b.tap("#join-cta");
   await a.waitForFunction(() => document.querySelector('[data-seat="1"] .seat-name')?.textContent === "Bo");
 
   // a palette on your own seat only, with the opponent's colour unavailable
@@ -253,3 +253,39 @@ test("inviting is one tap: the link is visible, copyable, and the foundation is 
   expect(errors).toEqual([]);
   await ctx.close();
 }, 30000);
+
+test("an invite link leads with Join, not Create", async () => {
+  const a = await open();
+  await a.fill("#name", "Ada");
+  await a.tap("#create");
+  await a.waitForSelector("#lobby:not([hidden])");
+  const code = (await a.textContent("#room-code"))!.trim();
+
+  const b = await open(phone, `/?room=${code}`);
+  const cta = b.locator("#join-cta");
+  expect(await cta.isVisible()).toBe(true);
+  expect((await cta.textContent())!.trim()).toBe(`Join match ${code}`);
+  expect(await cta.evaluate((e) => e.classList.contains("primary"))).toBe(true);
+  expect(await b.locator("#create").isVisible()).toBe(false);
+  expect(await b.textContent("#home-eyebrow")).toBe("Ada invites you");
+  expect(await b.locator("#create-instead").isVisible()).toBe(true);
+  await b.screenshot({ path: `${SHOTS}/home-invited.png` });
+
+  // pressing Enter in the name field joins too
+  await b.fill("#name", "Bo");
+  await b.press("#name", "Enter");
+  await b.waitForSelector("#lobby:not([hidden])");
+  expect(await b.textContent("#room-code")).toBe(code);
+  await a.waitForFunction(() => document.querySelector('[data-seat="1"] .seat-name')?.textContent === "Bo");
+  await a.context().close();
+  await b.context().close();
+
+  // choosing to start a new match instead restores the normal home
+  const c = await open(phone, `/?room=${code}`);
+  await c.tap("#create-instead");
+  expect(await c.locator("#create").isVisible()).toBe(true);
+  expect(await c.locator("#join-cta").isVisible()).toBe(false);
+  expect(new URL(c.url()).search).toBe("");
+  await c.context().close();
+  expect(errors).toEqual([]);
+}, 40000);

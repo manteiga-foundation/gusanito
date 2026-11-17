@@ -15,7 +15,7 @@ await a.waitForSelector("#lobby:not([hidden])");
 const code = (await a.textContent("#room-code"))!.trim();
 await b.goto(`${url}/?room=${code}`);
 await b.fill("#name", "Bo");
-await b.click("#join");
+await b.click("#join-cta");
 await a.waitForFunction(() => document.querySelector('[data-seat="1"] .seat-name')?.textContent === "Bo");
 await a.click("#ready");
 await b.waitForFunction(() => document.querySelector('[data-seat="0"]')?.classList.contains("is-ready"));
