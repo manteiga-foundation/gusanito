@@ -3,19 +3,27 @@
 Two-player online artillery in the spirit of Worms: destructible 2D ground, wind that changes every
 turn, and gravity wells that bend every projectile. Plays in the browser on phones and desktops.
 
-Live: https://wriggle-game.fly.dev
+Live: https://wriggle-game.fly.dev (custom domain gusanito.manteiga.org pending certificate validation)
+
+A Manteiga Foundation game.
 
 ![Lobby](docs/screenshots/lobby-one-ready.png)
 ![Match](docs/screenshots/game-p1.png)
 
 ## How a match works
 
-1. One player taps **Create match** and shares the four-letter code (or the invite link).
+1. One player taps **Create match**. The lobby shows the invite link with **Copy** and **Share**
+   (the phone's share sheet). The link previews as a card naming who is inviting and the code.
 2. The other player opens the link or enters the code and taps **Join**.
-3. The lobby shows **Ready Player One** and **Ready Player Two**. The match starts when both are ready.
+3. The lobby shows **Ready Player One** and **Ready Player Two**. Each player picks a team colour
+   (six options; the two players never share one). The match starts when both are ready.
 4. Teams of three worms alternate turns (45 s each). After firing there are 3 s to retreat.
 5. The last team with a worm standing wins. Both players return to the lobby for a rematch; the
    score carries over.
+
+During play the top of the screen shows who is winning: each team's remaining health and worms
+standing, a crown on the leader, and a caption such as "You lead by 170". Two treatments exist,
+`?hud=bar` (one shared tug-of-war bar) and `?hud=cards` (scoreboard cards); the choice is remembered.
 
 A dropped connection pauses the match; reopening the page rejoins the same seat. A player gone for
 90 seconds forfeits.
@@ -58,6 +66,10 @@ bun run test           # engine, rooms, WebSocket server, random-play fuzz
 bun run test:e2e       # two emulated phones: create, join, ready, aim, fire, reconnect
 bun run test:live      # the same browser flow against the deployed instance
 ```
+
+## Link preview image
+
+`bun run og-card` renders `public/og-card.jpg` (1200x630) from a real match scene.
 
 ## Deploy
 
