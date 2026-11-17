@@ -275,6 +275,15 @@ input::placeholder { color: var(--ink-faint); }
   font-variant-numeric: tabular-nums;
 }
 .clock.urgent { color: var(--danger); }
+.wind { display: flex; align-items: center; gap: 6px; }
+.wind::before {
+  content: "Wind";
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: var(--ink-faint);
+}
 .wind-bar {
   position: relative;
   width: 110px;
@@ -424,6 +433,90 @@ input::placeholder { color: var(--ink-faint); }
 .banner { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(12, 9, 24, 0.45); }
 .banner-panel { padding: 24px 28px; display: grid; gap: 10px; justify-items: center; text-align: center; min-width: 260px; }
 .banner-title { font-size: 30px; font-weight: 800; }
+
+/* ---------- standings: who is winning ---------- */
+.team-head { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.team.t1 .team-head, .team.t1 .team-score { flex-direction: row-reverse; }
+.team-score { display: flex; align-items: center; gap: 8px; }
+.team-total {
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
+}
+.pips { display: flex; gap: 4px; }
+.pip {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--tone);
+  opacity: 0.45;
+}
+.pip.alive { background: var(--tone); opacity: 1; }
+.team.t0 { --tone: var(--p1); }
+.team.t1 { --tone: var(--p2); }
+.crown { display: none; width: 15px; height: 15px; color: var(--gold); filter: drop-shadow(0 0 6px rgba(255, 197, 107, 0.6)); }
+.crown svg { width: 15px; height: 15px; display: block; }
+.team.leading .crown { display: block; }
+.lead-tag { display: none; }
+.team.trailing .team-total { opacity: 0.78; }
+
+.lead {
+  font-size: 12px;
+  font-weight: 800;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid var(--line);
+  white-space: nowrap;
+  color: var(--ink-dim);
+}
+.lead.lead-0 { color: var(--p1); border-color: color-mix(in srgb, var(--p1) 45%, transparent); }
+.lead.lead-1 { color: var(--p2); border-color: color-mix(in srgb, var(--p2) 45%, transparent); }
+.lead.pulse { animation: lead-pulse 0.7s ease; }
+@keyframes lead-pulse { 0% { transform: scale(1); } 35% { transform: scale(1.12); } 100% { transform: scale(1); } }
+
+/* candidate "bar": one shared tug-of-war bar; per-team bars hidden */
+.tug {
+  position: relative;
+  width: clamp(150px, 30vw, 300px);
+  height: 10px;
+  border-radius: 6px;
+  background: rgba(10, 8, 22, 0.55);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  display: none;
+}
+.tug .fill { position: absolute; top: 0; bottom: 0; transition: width 0.6s ease; }
+.tug .fill.t0 { left: 0; background: var(--p1); }
+.tug .fill.t1 { right: 0; background: var(--p2); }
+.tug .mid { position: absolute; left: 50%; top: -1px; bottom: -1px; width: 2px; margin-left: -1px; background: var(--ink); opacity: 0.85; }
+body[data-hud="bar"] .tug { display: block; }
+body[data-hud="bar"] .team .bar { display: none; }
+
+/* candidate "cards": scoreboard cards, the leader tagged and lit */
+body[data-hud="cards"] .team {
+  padding: 7px 10px 8px;
+  border-radius: 14px;
+  background: var(--glass);
+  border: 1px solid var(--line);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+body[data-hud="cards"] .team.leading { border-color: var(--tone); box-shadow: 0 0 0 1px var(--tone), 0 0 22px -6px var(--tone); }
+body[data-hud="cards"] .team.leading .lead-tag {
+  display: inline-block;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--gold);
+  color: #2a1a10;
+}
+body[data-hud="cards"] .team .bar { width: clamp(80px, 18vw, 170px); }
+body[data-hud="cards"] .corner { top: calc(92px + var(--safe-t)); }
 
 /* ---------- short landscape phones ---------- */
 @media (max-height: 500px) and (orientation: landscape) {

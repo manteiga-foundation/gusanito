@@ -119,3 +119,60 @@ test("two phones meet in the Ready Player One / Two lobby and play a turn", asyn
   await a.context().close();
   await b.context().close();
 }, 60000);
+
+async function startMatch(hud: string): Promise<[Page, Page]> {
+  const a = await open(phone, `/?hud=${hud}`);
+  await a.fill("#name", "Ada");
+  await a.tap("#create");
+  await a.waitForSelector("#lobby:not([hidden])");
+  const code = (await a.textContent("#room-code"))!.trim();
+  const b = await open(phone, `/?room=${code}&hud=${hud}`);
+  await b.fill("#name", "Bo");
+  await b.tap("#join");
+  await b.waitForSelector("#lobby:not([hidden])");
+  await a.waitForFunction(() => document.querySelector('[data-seat="1"] .seat-name')?.textContent === "Bo");
+  await a.tap("#ready");
+  await b.waitForFunction(() => document.querySelector('[data-seat="0"]')?.classList.contains("is-ready"));
+  await b.tap("#ready");
+  for (const p of [a, b]) await p.waitForFunction(() => (window as any).__wriggle.snapshot()?.worms?.length === 6);
+  return [a, b];
+}
+
+test("the HUD makes clear who is winning", async () => {
+  for (const hud of ["bar", "cards"]) {
+    const [a, b] = await startMatch(hud);
+    expect(await a.textContent("#lead")).toBe("Dead even");
+    expect(await a.textContent(".team.t0 .team-total")).toBe("300");
+    expect(await a.locator(".team.t1 .pip.alive").count()).toBe(3);
+
+    // Bo's team takes 170 damage: one worm at 30, one drowned
+    const s = await snap(a);
+    const theirs = s.worms.filter((w: any) => w.team === 1);
+    theirs[0].hp = 30;
+    theirs[1].hp = 0;
+    theirs[1].alive = false;
+    for (const p of [a, b]) await p.evaluate((x) => (window as any).__wriggle.preview(x), s);
+
+    expect(await a.textContent("#lead")).toBe("You lead by 170");
+    expect(await b.textContent("#lead")).toBe("Ada leads by 170");
+    expect(await a.textContent(".team.t1 .team-total")).toBe("130");
+    expect(await a.locator(".team.t1 .pip.alive").count()).toBe(2);
+    expect(await a.locator(".team.t0").evaluate((e) => e.classList.contains("leading"))).toBe(true);
+    expect(await a.locator(".team.t1").evaluate((e) => e.classList.contains("leading"))).toBe(false);
+    if (hud === "bar") {
+      // the fill animates; wait for it to settle on Ada's share (300 of 430)
+      await a.waitForFunction(() => {
+        const bar = document.querySelector("#tug")!.getBoundingClientRect();
+        const left = document.querySelector("#tug .fill.t0")!.getBoundingClientRect();
+        const share = left.width / bar.width;
+        return share > 0.66 && share < 0.73;
+      }, null, { timeout: 3000 });
+    }
+    await a.waitForTimeout(700);
+    await a.screenshot({ path: `${SHOTS}/lead-${hud}-p1.png` });
+    await b.screenshot({ path: `${SHOTS}/lead-${hud}-p2.png` });
+    expect(errors).toEqual([]);
+    await a.context().close();
+    await b.context().close();
+  }
+}, 90000);

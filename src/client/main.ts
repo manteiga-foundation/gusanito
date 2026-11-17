@@ -5,6 +5,7 @@ import { Sfx } from "./audio.ts";
 import { ICONS } from "./icons.ts";
 import { Net } from "./net.ts";
 import { Renderer, type View } from "./render.ts";
+import { leadText, standings } from "./standings.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 
@@ -40,6 +41,8 @@ class App {
   private keys = new Set<string>();
   private charge: number | null = null;
   private wakeLock: { release(): Promise<void> } | null = null;
+  private frozen = false;
+  private lastLeader: Seat | null | undefined = undefined;
   private demoWells = [
     { x: 760, y: 260 },
     { x: 1330, y: 210 },
@@ -55,6 +58,11 @@ class App {
       (ok) => this.onStatus(ok),
     );
     this.session = this.loadSession();
+    // HUD treatment for who-is-winning; ?hud=bar|cards picks a candidate and is remembered
+    const hudParam = new URLSearchParams(location.search).get("hud");
+    if (hudParam === "bar" || hudParam === "cards") localStorage.setItem("wriggle.hud", hudParam);
+    document.body.dataset.hud = localStorage.getItem("wriggle.hud") ?? "bar";
+    document.querySelectorAll(".crown").forEach((el) => (el.innerHTML = ICONS.crown));
     this.bindHome();
     this.bindLobby();
     this.bindHud();
@@ -132,6 +140,7 @@ class App {
         this.startMatch(m.seat, m.names, Terrain.fromRLE(m.terrain.w, m.terrain.h, m.terrain.rle));
         break;
       case "state":
+        if (this.frozen) break;
         this.prev = this.cur;
         this.cur = { s: m.s, t: performance.now() };
         this.onState(m.s);
@@ -266,6 +275,8 @@ class App {
     this.prev = null;
     this.cur = null;
     this.lastTurn = -1;
+    this.frozen = false;
+    this.lastLeader = undefined;
     this.r.setTerrain(terrain);
     this.r.autoZoom = true;
     this.r.resize();
@@ -307,11 +318,7 @@ class App {
     const pct = Math.abs(s.wind) * 50;
     wind.style.width = `${pct}%`;
     wind.style.left = s.wind >= 0 ? "50%" : `${50 - pct}%`;
-    for (const team of [0, 1] as Seat[]) {
-      const ws = s.worms.filter((w) => w.team === team);
-      const hp = ws.reduce((a, w) => a + (w.alive ? w.hp : 0), 0);
-      $<HTMLElement>(`.team.t${team} .bar i`).style.width = `${(100 * hp) / (100 * ws.length)}%`;
-    }
+    this.renderStandings(s);
     const hud = $("#hud");
     hud.classList.toggle("idle", !mine);
     hud.classList.toggle("fired", mine && s.phase === "retreat");
@@ -330,6 +337,31 @@ class App {
         $("#banner-title").textContent = s.winner === -1 ? "A draw" : s.winner === this.seat ? "You win" : `${this.names[s.winner as Seat]} wins`;
       }, 1200);
     }
+  }
+
+  private renderStandings(s: Snapshot): void {
+    const st = standings(s);
+    for (const team of [0, 1] as Seat[]) {
+      const el = $(`.team.t${team}`);
+      el.classList.toggle("leading", st.leader === team);
+      el.classList.toggle("trailing", st.leader !== null && st.leader !== team);
+      const total = el.querySelector(".team-total")!;
+      if (total.textContent !== String(st.hp[team])) total.textContent = String(st.hp[team]);
+      el.querySelector<HTMLElement>(".bar i")!.style.width = `${(100 * st.hp[team]) / (100 * Math.max(1, st.size[team]))}%`;
+      const pips = s.worms.filter((w) => w.team === team).map((w) => `<i class="pip${w.alive ? " alive" : ""}"></i>`).join("");
+      const box = el.querySelector(".pips")!;
+      if (box.innerHTML !== pips) box.innerHTML = pips;
+    }
+    $<HTMLElement>("#tug .fill.t0").style.width = `${st.share * 100}%`;
+    $<HTMLElement>("#tug .fill.t1").style.width = `${(1 - st.share) * 100}%`;
+    const lead = $("#lead");
+    lead.textContent = leadText(st, this.names, this.seat);
+    lead.className = `lead ${st.leader === null ? "even" : `lead-${st.leader}`}`;
+    if (this.lastLeader !== undefined && this.lastLeader !== st.leader) {
+      void lead.offsetWidth;
+      lead.classList.add("pulse");
+    }
+    this.lastLeader = st.leader;
   }
 
   private onGameEvent(e: GameEvent): void {
@@ -612,6 +644,13 @@ class App {
       seat: () => this.seat,
       connected: () => this.net.connected,
       dropConnection: () => this.net.drop(),
+      /** test and design hook: stop applying live state and show this snapshot instead */
+      preview: (s: Snapshot) => {
+        this.frozen = true;
+        this.prev = null;
+        this.cur = { s, t: performance.now() };
+        this.onState(s);
+      },
       activeScreen: () => {
         const w = this.activeWorm();
         return w ? this.r.toScreen(w.x, w.y) : null;
