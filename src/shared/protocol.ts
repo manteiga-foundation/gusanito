@@ -67,12 +67,12 @@ export interface Snapshot {
 }
 
 export type GameEvent =
-  | { t: "boom"; x: number; y: number; r: number }
+  | { t: "boom"; x: number; y: number; r: number; team?: Seat }
   | { t: "hurt"; id: number; amount: number }
   | { t: "drown"; id: number }
   | { t: "die"; id: number }
-  | { t: "fire"; weapon: WeaponId; x: number; y: number }
-  | { t: "shot"; x0: number; y0: number; x1: number; y1: number }
+  | { t: "fire"; seat: Seat; weapon: WeaponId; x: number; y: number }
+  | { t: "shot"; seat: Seat; x0: number; y0: number; x1: number; y1: number }
   | { t: "fizzle"; x: number; y: number }
   | { t: "splash"; x: number }
   | { t: "switch"; seat: Seat; active: number };

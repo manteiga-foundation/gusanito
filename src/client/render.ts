@@ -1,6 +1,7 @@
 import { WORLD_H, WORLD_W, WORM_R } from "../shared/constants.ts";
 import type { GameEvent, ProjView, Seat, Snapshot, WormView } from "../shared/protocol.ts";
 import { Terrain } from "../shared/terrain.ts";
+import { wormLabel } from "./director.ts";
 
 /** Team colours, replaced in place when players pick theirs in the lobby. */
 export const TEAM: [string, string] = ["#ff7a59", "#3fc8b6"];
@@ -733,23 +734,41 @@ export class Renderer {
     for (const w of v.worms) {
       if (!w.alive) continue;
       const s = this.toScreen(w.x, w.y - WORM_R);
-      const y = s.y - 16;
-      const label = String(w.hp);
-      c.font = "800 11px ui-rounded, system-ui, sans-serif";
-      const tw = c.measureText(label).width + 12;
-      c.fillStyle = "rgba(23,18,42,0.78)";
+      const label = wormLabel(w, v.names);
+      const tone = TEAM[w.team];
+      // health bar with the number beside it
+      const bw = 34;
+      const by = s.y - 13;
+      const bx = s.x - bw / 2 - 7;
+      c.fillStyle = "rgba(23,18,42,0.82)";
       c.beginPath();
-      c.roundRect(s.x - tw / 2, y - 8, tw, 16, 8);
+      c.roundRect(bx - 2, by - 2, bw + 4, 7, 3.5);
       c.fill();
-      c.fillStyle = TEAM[w.team];
-      c.fillText(label, s.x, y + 0.5);
+      c.fillStyle = tone;
+      c.beginPath();
+      c.roundRect(bx, by, Math.max(2, bw * label.frac), 3, 1.5);
+      c.fill();
+      c.font = "800 10px ui-rounded, system-ui, sans-serif";
+      c.textAlign = "left";
+      c.lineWidth = 3;
+      c.strokeStyle = "rgba(23,18,42,0.85)";
+      c.strokeText(label.text, bx + bw + 5, by + 1.5);
+      c.fillStyle = "#fff4e6";
+      c.fillText(label.text, bx + bw + 5, by + 1.5);
+      // player name
+      c.textAlign = "center";
+      c.font = "800 10.5px ui-rounded, system-ui, sans-serif";
+      const ny = by - 10;
+      c.strokeText(label.name, s.x, ny);
+      c.fillStyle = tone;
+      c.fillText(label.name, s.x, ny);
       if (v.actives[w.team] === w.id && v.snap.phase !== "over") {
         const bob = Math.sin(this.time * 5) * 3;
-        c.fillStyle = TEAM[w.team];
+        c.fillStyle = tone;
         c.beginPath();
-        c.moveTo(s.x - 6, y - 22 + bob);
-        c.lineTo(s.x + 6, y - 22 + bob);
-        c.lineTo(s.x, y - 14 + bob);
+        c.moveTo(s.x - 6, ny - 18 + bob);
+        c.lineTo(s.x + 6, ny - 18 + bob);
+        c.lineTo(s.x, ny - 10 + bob);
         c.fill();
       }
     }

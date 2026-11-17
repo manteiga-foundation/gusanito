@@ -151,6 +151,20 @@ describe("both players at once", () => {
 });
 
 describe("weapons", () => {
+  test("fire, shot and blast events say whose they are", () => {
+    const g = flatGame({ spawns: [[300, 500], [1500, 1700]] });
+    g.handle(1, { t: "aim", angle: Math.PI / 2 });
+    g.handle(1, { t: "fire", power: 0.5 });
+    g.handle(0, { t: "weapon", id: "shotgun" });
+    g.handle(0, { t: "aim", angle: Math.PI / 2 });
+    g.handle(0, { t: "fire", power: 1 });
+    g.run(0.2);
+    const ev = g.drainEvents() as any[];
+    expect(ev.filter((e) => e.t === "fire").map((e) => e.seat).sort()).toEqual([0, 1]);
+    expect(ev.find((e) => e.t === "shot").seat).toBe(0);
+    expect(ev.filter((e) => e.t === "boom").map((e) => e.team).sort()).toEqual([0, 1]);
+  });
+
   test("a rocket fired into the ground carves a crater and hurts worms inside the blast only", () => {
     const g = flatGame();
     g.handle(0, { t: "weapon", id: "rocket" });

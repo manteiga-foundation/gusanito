@@ -6,6 +6,8 @@ import { ICONS } from "./icons.ts";
 import { Net } from "./net.ts";
 import { Renderer, TEAM, type View } from "./render.ts";
 import { leadText, standings } from "./standings.ts";
+import { CHARGE_MS, Director, chargePower, charges } from "./director.ts";
+import { soundsFor } from "./sounds.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T;
 
@@ -30,7 +32,9 @@ class App {
   private prev: { s: Snapshot; t: number } | null = null;
   private cur: { s: Snapshot; t: number } | null = null;
   private myAim = -Math.PI / 4;
-  private myPower = 0.65;
+  private lastPower = 0;
+  private director = new Director(null);
+  private launchTimer = 0;
   private aimSentAt = 0;
   private aiming = false;
   private lastPhase: Snapshot["phase"] | null = null;
@@ -360,6 +364,7 @@ class App {
     this.prev = null;
     this.cur = null;
     this.lastPhase = null;
+    this.director.setSeat(seat);
     this.frozen = false;
     this.lastLeader = undefined;
     this.r.setTerrain(terrain);
@@ -419,6 +424,8 @@ class App {
     if (wbtn.dataset.w !== me.weapon) {
       wbtn.innerHTML = `${ICONS[me.weapon]}<span>${WEAPONS[me.weapon].label}</span>`;
       wbtn.dataset.w = me.weapon;
+      fireBtn.dataset.weapon = me.weapon;
+      fireBtn.innerHTML = `<span class="fire-icon">${ICONS[me.weapon]}</span><span class="fire-label">Fire</span>`;
     }
     if (!live) $("#tray").hidden = true;
 
@@ -461,10 +468,18 @@ class App {
   private onGameEvent(e: GameEvent): void {
     const worms = this.cur?.s.worms ?? [];
     this.r.onEvent(e, worms);
-    if (e.t === "boom") this.sfx.boom(e.r);
-    else if (e.t === "fire") this.sfx.fire();
-    else if (e.t === "drown" || e.t === "splash") this.sfx.splash();
-    else if (e.t === "hurt" && worms.find((w) => w.id === e.id)?.team === this.seat) navigator.vibrate?.(60);
+    this.director.onEvent(e, performance.now());
+    for (const cue of soundsFor(e, this.seat, worms)) {
+      if (cue === "boom" && e.t === "boom") this.sfx.boom(e.r);
+      else if (cue === "fire") this.sfx.fire();
+      else if (cue === "splash") this.sfx.splash();
+      else if (cue === "death" || cue === "death-own") {
+        // the puff lands after the splash when a worm drowns
+        setTimeout(() => this.sfx.death(cue === "death-own"), e.t === "drown" ? 250 : 0);
+        if (cue === "death-own") navigator.vibrate?.([80, 60, 140]);
+      }
+    }
+    if (e.t === "hurt" && worms.find((w) => w.id === e.id)?.team === this.seat) navigator.vibrate?.(60);
     else if (e.t === "switch" && e.seat === this.seat) {
       this.sfx.blip(700, 0.06, 0.08);
       this.r.manualUntil = 0;
@@ -535,7 +550,16 @@ class App {
       e.preventDefault();
       this.net.send({ t: "jump" });
     });
-    $("#fire").addEventListener("click", () => this.fire(this.myPower));
+    // Fire: press and hold to build speed, release to shoot (hitscan weapons shoot on release)
+    const fire = $("#fire");
+    fire.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      fire.setPointerCapture(e.pointerId);
+      this.startCharge();
+    });
+    fire.addEventListener("pointerup", () => this.releaseCharge());
+    fire.addEventListener("pointercancel", () => this.cancelCharge());
+    fire.addEventListener("contextmenu", (e) => e.preventDefault());
     $("#weapon").addEventListener("click", () => {
       const tray = $("#tray");
       tray.hidden = !tray.hidden;
@@ -551,12 +575,53 @@ class App {
     for (const sel of ["#hud", "#lobby"]) $(sel).addEventListener("contextmenu", (e) => e.preventDefault());
   }
 
-  private fire(power: number): void {
+  private ready(): boolean {
     const s = this.cur?.s;
-    if (!s || s.phase !== "play" || !this.canAct(s) || this.mySeat(s).reload > 0) return;
+    return !!s && s.phase === "play" && this.canAct(s) && this.mySeat(s).reload <= 0;
+  }
+
+  private startCharge(): void {
+    if (!this.ready() || this.charge !== null) return;
+    this.charge = performance.now();
+    $("#tray").hidden = true;
+    const fire = $("#fire");
+    fire.classList.remove("launch");
+    fire.classList.add("charging");
+    this.sfx.blip(300, 0.05, 0.05);
+  }
+
+  private chargeLevel(): number {
+    if (this.charge === null) return 0;
+    const w = this.cur ? this.mySeat(this.cur.s).weapon : "rocket";
+    return charges(w) ? chargePower(performance.now() - this.charge) : 1;
+  }
+
+  private releaseCharge(): void {
+    if (this.charge === null) return;
+    const power = this.chargeLevel();
+    this.charge = null;
+    this.fire(power);
+  }
+
+  private cancelCharge(): void {
+    this.charge = null;
+    const fire = $("#fire");
+    fire.classList.remove("charging");
+    fire.style.setProperty("--charge", "0");
+  }
+
+  private fire(power: number): void {
+    const fire = $("#fire");
+    fire.classList.remove("charging");
+    fire.style.setProperty("--charge", "0");
+    if (!this.ready()) return;
+    this.lastPower = power;
     this.net.send({ t: "aim", angle: this.myAim });
     this.net.send({ t: "fire", power });
     $("#tray").hidden = true;
+    fire.classList.add("launch");
+    clearTimeout(this.launchTimer);
+    this.launchTimer = window.setTimeout(() => fire.classList.remove("launch"), 380);
   }
 
   private sendAim(force = false): void {
@@ -581,7 +646,6 @@ class App {
     const d = Math.hypot(dx, dy);
     if (d < 6) return;
     this.myAim = Math.atan2(dy, dx);
-    this.myPower = Math.max(0.08, Math.min(1, (d - 20) / 180));
     this.sendAim();
     if (!localStorage.getItem("wriggle.aimed")) {
       localStorage.setItem("wriggle.aimed", "1");
@@ -657,7 +721,7 @@ class App {
         this.myAim += (up ? -1 : 1) * facing * 0.045;
         this.sendAim();
       } else if (e.code === "Enter" || e.code === "KeyJ") this.net.send({ t: "jump" });
-      else if (e.code === "Space") this.charge = performance.now();
+      else if (e.code === "Space") this.startCharge();
       else if (/^Digit[1-4]$/.test(e.code)) this.chooseWeapon(WEAPON_ORDER[Number(e.code.slice(5)) - 1]);
       if (e.code === "Space" || e.code.startsWith("Arrow")) e.preventDefault();
     });
@@ -666,12 +730,7 @@ class App {
       if (!this.inMatch) return;
       const lr = ["ArrowLeft", "KeyA", "ArrowRight", "KeyD"];
       if (lr.includes(e.code) && !lr.some((k) => this.keys.has(k))) this.net.send({ t: "move", dir: 0 });
-      if (e.code === "Space" && this.charge !== null) {
-        const p = Math.min(1, (performance.now() - this.charge) / 1400);
-        this.charge = null;
-        this.myPower = Math.max(0.08, p);
-        this.fire(this.myPower);
-      }
+      if (e.code === "Space") this.releaseCharge();
     });
   }
 
@@ -703,7 +762,7 @@ class App {
       return o ? { ...p, x: lerp(o.x, p.x), y: lerp(o.y, p.y) } : p;
     });
     const live = this.canAct(cur.s);
-    const charging = this.charge !== null ? Math.min(1, (performance.now() - this.charge) / 1400) : null;
+
     const aims: [number, number] = [cur.s.seats[0].aim, cur.s.seats[1].aim];
     if (this.seat !== null) aims[this.seat] = this.myAim;
     return {
@@ -714,7 +773,7 @@ class App {
       seat: this.seat,
       aims,
       actives: [cur.s.seats[0].active, cur.s.seats[1].active],
-      power: live ? charging ?? this.myPower : null,
+      power: live ? this.chargeLevel() : null,
     };
   }
 
@@ -722,12 +781,17 @@ class App {
   private frame(dt: number): void {
     const v = this.viewNow();
     if (v) {
-      // follow my latest shot while it flies, otherwise my worm
-      const mine = v.proj.filter((q) => q.team === this.seat && q.k !== "bomblet");
-      const p = mine[mine.length - 1];
-      const w = this.activeWorm();
-      if (p) this.r.follow(p.x, p.y, dt, 5);
-      else if (w) this.r.follow(w.x, w.y, dt);
+      // my shot while it flies, its blast for a moment, then my next worm
+      const t = this.director.target(v, performance.now());
+      if (t) this.r.follow(t.x, t.y, dt, t.rate);
+      if (this.charge !== null) {
+        const c = this.chargeLevel();
+        const fire = $("#fire");
+        fire.style.setProperty("--charge", c.toFixed(3));
+        fire.style.setProperty("--heat", `hsl(${Math.round(48 - 46 * c)} 100% ${Math.round(62 - 8 * c)}%)`);
+        if (!this.ready()) this.cancelCharge();
+        else if (c >= 1 && performance.now() - this.charge >= CHARGE_MS + 120) this.releaseCharge();
+      }
       this.r.draw(dt, v, v.snap.wells, v.snap.waterY);
     } else {
       this.demoT += dt;
@@ -747,6 +811,25 @@ class App {
       dropConnection: () => this.net.drop(),
       /** test and design hook: stop applying live state and show this snapshot instead */
       teamColors: () => [...TEAM],
+      lastFirePower: () => this.lastPower,
+      /** render a cue offline and measure it: peak level and audible length in seconds */
+      renderCue: async (cue: "death" | "death-own" | "boom") => {
+        const ctx = new OfflineAudioContext(1, 44100 * 2, 44100);
+        const s = new Sfx();
+        s.useContext(ctx);
+        if (cue === "boom") s.boom(40);
+        else s.death(cue === "death-own");
+        const buf = await ctx.startRendering();
+        const d = buf.getChannelData(0);
+        let peak = 0;
+        let last = 0;
+        for (let i = 0; i < d.length; i++) {
+          const a = Math.abs(d[i]);
+          if (a > peak) peak = a;
+          if (a > 0.01) last = i;
+        }
+        return { peak, seconds: last / buf.sampleRate };
+      },
       preview: (s: Snapshot) => {
         this.frozen = true;
         this.prev = null;

@@ -380,7 +380,7 @@ export class Game {
     if (p.ammo[p.weapon] > 0) p.ammo[p.weapon]--;
     p.reload = spec.reload;
     p.reloadOf = spec.reload;
-    this.events.push({ t: "fire", weapon: p.weapon, x: me.x, y: me.y });
+    this.events.push({ t: "fire", seat, weapon: p.weapon, x: me.x, y: me.y });
 
     if (p.weapon === "shotgun") this.hitscan(me, dx, dy);
     else {
@@ -429,18 +429,18 @@ export class Game {
         hit.vx += dx * WEAPONS.shotgun.knock;
         hit.vy += dy * WEAPONS.shotgun.knock - 60;
         hit.grounded = false;
-        this.events.push({ t: "shot", x0, y0, x1: x, y1: y }, { t: "boom", x, y, r: 6 });
+        this.events.push({ t: "shot", seat: me.team, x0, y0, x1: x, y1: y }, { t: "boom", x, y, r: 6, team: me.team });
         return;
       }
       if (this.terrain.solid(x, y)) {
         this.terrain.carve(x, y, WEAPONS.shotgun.radius);
-        this.events.push({ t: "shot", x0, y0, x1: x, y1: y }, { t: "boom", x, y, r: WEAPONS.shotgun.radius });
+        this.events.push({ t: "shot", seat: me.team, x0, y0, x1: x, y1: y }, { t: "boom", x, y, r: WEAPONS.shotgun.radius, team: me.team });
         return;
       }
       x += dx * 2;
       y += dy * 2;
     }
-    this.events.push({ t: "shot", x0, y0, x1: x, y1: y });
+    this.events.push({ t: "shot", seat: me.team, x0, y0, x1: x, y1: y });
   }
 
   private stepProjectile(p: Projectile, dt: number): void {
@@ -528,7 +528,7 @@ export class Game {
   private explode(p: Projectile): void {
     this.remove(p);
     const spec = BLAST_FOR[p.k];
-    this.blast(p.x, p.y, spec.radius, spec.damage, spec.knock);
+    this.blast(p.x, p.y, spec.radius, spec.damage, spec.knock, p.team);
     if (p.k === "cluster") {
       for (let i = 0; i < BOMBLET.count; i++) {
         const spread = (i / (BOMBLET.count - 1) - 0.5) * 2;
@@ -541,9 +541,9 @@ export class Game {
     }
   }
 
-  private blast(x: number, y: number, r: number, damage: number, knock: number): void {
+  private blast(x: number, y: number, r: number, damage: number, knock: number, team: Seat): void {
     this.terrain.carve(x, y, r);
-    this.events.push({ t: "boom", x: Math.round(x), y: Math.round(y), r });
+    this.events.push({ t: "boom", x: Math.round(x), y: Math.round(y), r, team });
     for (const w of this.worms) {
       if (!w.alive) continue;
       const dx = w.x - x;

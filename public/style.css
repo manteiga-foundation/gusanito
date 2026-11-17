@@ -362,7 +362,7 @@ input::placeholder { color: var(--ink-faint); }
   align-items: flex-end;
 }
 .controls.left { left: calc(12px + var(--safe-l)); }
-.controls.right { right: calc(12px + var(--safe-r)); }
+.controls.right { right: calc(22px + var(--safe-r)); bottom: calc(18px + var(--safe-b)); }
 .pad {
   appearance: none;
   width: 58px;
@@ -405,6 +405,46 @@ input::placeholder { color: var(--ink-faint); }
   color: rgba(42, 26, 16, 0.55);
   box-shadow: none;
 }
+/* ---------- Fire: hold to charge, release to shoot ---------- */
+.pad.fire { position: relative; grid-auto-flow: row; gap: 0; align-content: center; overflow: visible; --charge: 0; --heat: var(--gold); }
+.fire-icon { display: grid; place-items: center; }
+.fire-icon svg { width: 24px; height: 24px; }
+.fire-label { font-size: 11px; letter-spacing: 0.1em; line-height: 1; margin-top: 1px; }
+.pad.fire::before {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 50%;
+  background: conic-gradient(var(--heat) calc(var(--charge) * 360deg), rgba(255, 244, 230, 0.14) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+.pad.fire.charging::before { opacity: 1; }
+.pad.fire.charging {
+  transform: scale(calc(1 + var(--charge) * 0.12));
+  box-shadow: 0 0 calc(10px + var(--charge) * 26px) var(--heat), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  transition: none;
+}
+/* each weapon winds up its own way */
+.pad.fire.charging[data-weapon="rocket"] .fire-icon { animation: rumble 0.07s linear infinite; }
+.pad.fire.charging[data-weapon="grenade"] .fire-icon { transform: rotate(calc(var(--charge) * -55deg)) translateX(calc(var(--charge) * -3px)); }
+.pad.fire.charging[data-weapon="cluster"] .fire-icon { transform: scale(calc(1 + var(--charge) * 0.35)); animation: rumble 0.11s linear infinite; }
+.pad.fire.charging[data-weapon="shotgun"] .fire-icon { transform: translateX(-4px) rotate(8deg); }
+@keyframes rumble {
+  0% { translate: calc(var(--charge) * -2.5px) 0; }
+  50% { translate: calc(var(--charge) * 2.5px) calc(var(--charge) * -1px); }
+  100% { translate: calc(var(--charge) * -2.5px) 0; }
+}
+.pad.fire.launch .fire-icon { animation: launch 0.38s ease-out; }
+.pad.fire.launch[data-weapon="grenade"] .fire-icon, .pad.fire.launch[data-weapon="cluster"] .fire-icon { animation-name: lob; }
+.pad.fire.launch[data-weapon="shotgun"] .fire-icon { animation-name: recoil; }
+@keyframes launch { 0% { transform: none; opacity: 1; } 60% { transform: translate(16px, -22px) scale(0.7); opacity: 0; } 61% { transform: translateY(8px); opacity: 0; } 100% { transform: none; opacity: 1; } }
+@keyframes lob { 0% { transform: none; opacity: 1; } 30% { transform: translate(8px, -16px) rotate(90deg); } 60% { transform: translate(18px, -6px) rotate(200deg) scale(0.6); opacity: 0; } 61% { transform: none; opacity: 0; } 100% { opacity: 1; } }
+@keyframes recoil { 0% { transform: translateX(-4px); } 25% { transform: translateX(-9px) rotate(-12deg); } 100% { transform: none; } }
+
 #turn-label.warn { background: rgba(255, 107, 107, 0.18); border-color: var(--danger); color: var(--ink); }
 .banner-sub { font-size: 13px; color: var(--ink-dim); margin-top: -4px; }
 #hud.idle .hint, #hud.fired .hint { opacity: 0; }

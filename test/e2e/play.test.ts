@@ -48,6 +48,12 @@ test("home screen offers create and join on a phone", async () => {
   const box = (await p.locator("#create").boundingBox())!;
   expect(box.height).toBeGreaterThanOrEqual(44);
   await p.screenshot({ path: `${SHOTS}/home-landscape.png` });
+  // the death cues render, are audible, and the own-worm one is the longer, lower one
+  const other = await p.evaluate(() => (window as any).__wriggle.renderCue("death"));
+  const own = await p.evaluate(() => (window as any).__wriggle.renderCue("death-own"));
+  expect(other.peak).toBeGreaterThan(0.05);
+  expect(other.seconds).toBeGreaterThan(0.4);
+  expect(own.seconds).toBeGreaterThan(other.seconds);
   await p.context().close();
   const q = await open(portrait);
   await q.screenshot({ path: `${SHOTS}/home-portrait.png` });
@@ -96,7 +102,29 @@ test("two phones meet in the Ready Player One / Two lobby and play at the same t
     await p.mouse.move(me.x + dx, me.y - 110, { steps: 4 });
     await p.mouse.up();
   }
-  await Promise.all([a.tap("#fire"), b.tap("#fire")]);
+  // the Fire button wears the weapon it will fire
+  expect(await a.getAttribute("#fire", "data-weapon")).toBe("rocket");
+  expect(await a.locator("#fire svg").count()).toBe(1);
+
+  // hold Fire to build speed, release to shoot: both players at once
+  const fireAt = async (p: Page) => {
+    const box = (await p.locator("#fire").boundingBox())!;
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  };
+  const [fa, fb] = [await fireAt(a), await fireAt(b)];
+  await a.mouse.move(fa.x, fa.y);
+  await b.mouse.move(fb.x, fb.y);
+  await Promise.all([a.mouse.down(), b.mouse.down()]);
+  await a.waitForTimeout(650);
+  const charging = await a.locator("#fire").evaluate((e) => ({ on: e.classList.contains("charging"), c: Number(getComputedStyle(e).getPropertyValue("--charge")) }));
+  expect(charging.on).toBe(true);
+  expect(charging.c).toBeGreaterThan(0.3);
+  expect(charging.c).toBeLessThan(0.9);
+  await a.screenshot({ path: `${SHOTS}/fire-charging.png` });
+  await Promise.all([a.mouse.up(), b.mouse.up()]);
+  const pa = await a.evaluate(() => (window as any).__wriggle.lastFirePower());
+  expect(pa).toBeGreaterThan(0.35);
+  expect(pa).toBeLessThan(0.85);
   await a.waitForFunction(() => {
     const s = (window as any).__wriggle.snapshot();
     return new Set(s.proj.map((p: any) => p.team)).size === 2;
@@ -109,6 +137,14 @@ test("two phones meet in the Ready Player One / Two lobby and play at the same t
   expect(s1.seats[1].active).not.toBe(firstB);
   expect(await a.locator("#fire").evaluate((e) => e.classList.contains("reloading"))).toBe(true);
   await a.waitForFunction(() => !document.querySelector("#fire")!.classList.contains("reloading"), null, { timeout: 5000 });
+
+  // holding all the way fires by itself at full power
+  const before = (await snap(a)).seats[0].active;
+  await a.mouse.move(fa.x, fa.y);
+  await a.mouse.down();
+  await a.waitForFunction((id) => (window as any).__wriggle.snapshot().seats[0].active !== id, before, { timeout: 4000 });
+  await a.mouse.up();
+  expect(await a.evaluate(() => (window as any).__wriggle.lastFirePower())).toBe(1);
 
   // the weapon tray works at any moment
   await b.tap("#weapon");
