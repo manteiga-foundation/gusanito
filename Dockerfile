@@ -5,6 +5,7 @@ RUN bun install --frozen-lockfile --ignore-scripts
 COPY tsconfig.json ./
 COPY src ./src
 COPY public ./public
+COPY install.sh ./
 RUN bun run build
 
 FROM oven/bun:1-slim

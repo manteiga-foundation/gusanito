@@ -546,6 +546,12 @@ input::placeholder { color: var(--ink-faint); }
   font-weight: 800;
 }
 .row .rank { color: var(--ink-faint); font-size: 10px; text-align: center; }
+/* each piece has its own column: the rank and the leader's crown share the first, so showing the
+   crown never pushes the name into the narrow rank column */
+.row .rank, .row .crown { grid-column: 1; grid-row: 1; justify-self: center; }
+.row .team-name { grid-column: 2; grid-row: 1; }
+.row .team-total { grid-column: 3; grid-row: 1; }
+.row .pips { grid-column: 4; grid-row: 1; }
 .row .team-name { color: var(--tone); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .team-total { font-variant-numeric: tabular-nums; min-width: 26px; text-align: right; }
 .row.is-me { border-color: color-mix(in srgb, var(--tone) 60%, transparent); }

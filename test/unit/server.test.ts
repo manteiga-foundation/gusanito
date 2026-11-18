@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { startServer } from "../../src/server/server.ts";
 import type { ServerMsg } from "../../src/shared/protocol.ts";
 
@@ -105,4 +105,53 @@ test("the preview image is served as a jpeg", async () => {
   const r = await fetch(`http://${base}/og-card.jpg`);
   expect(r.status).toBe(200);
   expect(r.headers.get("content-type")).toBe("image/jpeg");
+});
+
+describe("found on search engines", () => {
+  test("every host points search engines at one canonical address", async () => {
+    const html = await (await fetch(`http://${base}/`, { headers: { "x-forwarded-host": "wriggle-game.fly.dev" } })).text();
+    expect(html).toContain('<link rel="canonical" href="https://gusanito.manteiga.org/">');
+    expect(html).toContain('<meta name="robots" content="index, follow">');
+  });
+
+  test("invite links stay out of search results", async () => {
+    const html = await (await fetch(`http://${base}/?room=ZZZZ`)).text();
+    expect(html).toContain('<meta name="robots" content="noindex, follow">');
+  });
+
+  test("the page describes the game to search engines as structured data", async () => {
+    const html = await (await fetch(`http://${base}/`)).text();
+    const m = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+    expect(m).not.toBeNull();
+    const data = JSON.parse(m![1]);
+    expect(data["@type"]).toBe("VideoGame");
+    expect(data.name).toBe("Gusanito");
+    expect(data.url).toBe("https://gusanito.manteiga.org/");
+    expect(data.numberOfPlayers).toMatchObject({ minValue: 2, maxValue: 6 });
+    expect(data.offers).toMatchObject({ price: "0" });
+    expect(data.publisher.name).toBe("Manteiga Foundation");
+    expect(data.sameAs).toContain("https://github.com/manteiga-foundation/gusanito");
+    expect(data.gamePlatform).toEqual(expect.arrayContaining(["Web browser", "Android", "iOS"]));
+  });
+
+  test("the description says what searchers type: free, online, browser, phone", async () => {
+    const html = await (await fetch(`http://${base}/`)).text();
+    const d = html.match(/<meta name="description" content="([^"]*)">/)![1].toLowerCase();
+    for (const word of ["free", "online", "browser", "phone", "artillery"]) expect(d).toContain(word);
+  });
+
+  test("robots.txt allows crawling and names the sitemap", async () => {
+    const r = await fetch(`http://${base}/robots.txt`);
+    expect(r.status).toBe(200);
+    const text = await r.text();
+    expect(text).toContain("Allow: /");
+    expect(text).toContain("Sitemap: https://gusanito.manteiga.org/sitemap.xml");
+  });
+
+  test("the sitemap lists the canonical address", async () => {
+    const r = await fetch(`http://${base}/sitemap.xml`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("content-type")).toContain("xml");
+    expect(await r.text()).toContain("<loc>https://gusanito.manteiga.org/</loc>");
+  });
 });

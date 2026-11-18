@@ -11,6 +11,9 @@ const TYPES: Record<string, string> = {
   svg: "image/svg+xml",
   png: "image/png",
   jpg: "image/jpeg",
+  txt: "text/plain; charset=utf-8",
+  xml: "application/xml; charset=utf-8",
+  sh: "text/plain; charset=utf-8",
 };
 
 export interface ServerOptions {
@@ -21,13 +24,43 @@ export interface ServerOptions {
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+/** The one public address search engines should list, whichever host served the page. */
+export const CANONICAL = "https://gusanito.manteiga.org/";
+const REPOSITORY = "https://github.com/manteiga-foundation/gusanito";
+
 const GENERIC = {
-  title: "Gusanito: artillery for 2 to 6 players",
-  description: "Up to six players at once on destructible ground, with shifting wind and gravity wells that bend every shot. Invite friends and play in the browser. A Manteiga Foundation game.",
+  title: "Gusanito: free online artillery game for 2 to 6 players",
+  description:
+    "Free online artillery game for 2 to 6 players, in the spirit of Worms. Play in the browser on a phone or computer: destructible ground, shifting wind and gravity wells. A Manteiga Foundation game.",
 };
 
+/** schema.org VideoGame description for search engines (rich results). */
+const STRUCTURED = {
+  "@context": "https://schema.org",
+  "@type": "VideoGame",
+  name: "Gusanito",
+  url: CANONICAL,
+  description: GENERIC.description,
+  image: `${CANONICAL}og-card.jpg`,
+  genre: ["Artillery", "Strategy", "Party game"],
+  gamePlatform: ["Web browser", "Android", "iOS", "macOS", "Windows", "Linux"],
+  applicationCategory: "Game",
+  operatingSystem: "Any (web browser)",
+  playMode: ["MultiPlayer", "CoOp"],
+  numberOfPlayers: { "@type": "QuantitativeValue", minValue: 2, maxValue: 6 },
+  inLanguage: "en",
+  isAccessibleForFree: true,
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD", availability: "https://schema.org/InStock" },
+  author: { "@type": "Organization", name: "Manteiga Foundation", url: "https://manteiga.org" },
+  publisher: { "@type": "Organization", name: "Manteiga Foundation", url: "https://manteiga.org" },
+  license: "https://opensource.org/licenses/MIT",
+  sameAs: [REPOSITORY],
+};
+// "<" escaped so no value can close the script element early
+const STRUCTURED_JSON = JSON.stringify(STRUCTURED).replace(/</g, "\\u003c");
+
 /** Fills the page's link-preview tags; an invite link names the host and the match code. */
-export function renderPage(template: string, origin: string, room: string | null, host: string | null): string {
+export function renderPage(template: string, origin: string, room: string | null, host: string | null, inviteLink = !!room): string {
   const invite = room && host;
   const fields: Record<string, string> = {
     title: invite ? `${host} invites you to Gusanito` : GENERIC.title,
@@ -36,8 +69,13 @@ export function renderPage(template: string, origin: string, room: string | null
       : GENERIC.description,
     url: invite ? `${origin}/?room=${room}` : `${origin}/`,
     image: `${origin}/og-card.jpg`,
+    canonical: CANONICAL,
+    // invite links are one match's door, not a page to list
+    robots: inviteLink ? "noindex, follow" : "index, follow",
   };
-  return template.replace(/\{\{(\w+)\}\}/g, (_, k: string) => esc(fields[k] ?? ""));
+  return template
+    .replace("{{structured}}", () => STRUCTURED_JSON)
+    .replace(/\{\{(\w+)\}\}/g, (_, k: string) => esc(fields[k] ?? ""));
 }
 
 export function startServer(opts: ServerOptions) {
@@ -74,7 +112,7 @@ export function startServer(opts: ServerOptions) {
         const origin = `${local ? url.protocol.replace(":", "") : "https"}://${host}`;
         const code = (url.searchParams.get("room") ?? "").toUpperCase();
         const seat = /^[A-Z]{4}$/.test(code) ? rooms.get(code)?.seats[0] : undefined;
-        const html = renderPage(await page.text(), origin, seat ? code : null, seat?.name ?? null);
+        const html = renderPage(await page.text(), origin, seat ? code : null, seat?.name ?? null, url.searchParams.has("room"));
         return new Response(html, { headers: { "content-type": TYPES.html, "cache-control": "no-cache", "x-content-type-options": "nosniff" } });
       }
       const file = resolve(root, "." + path);

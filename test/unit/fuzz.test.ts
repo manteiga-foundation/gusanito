@@ -28,3 +28,27 @@ test("long random simultaneous matches never throw, keep numbers finite, and alw
     expect(fired).toBeGreaterThan(10);
   }
 }, 60000);
+
+test("the same seed and the same inputs always give the same match", () => {
+  const play = (seed: number) => {
+    const g = new Game({ seed, names: ["A", "B", "C"] });
+    const r = rng(seed * 17);
+    const trace: string[] = [];
+    for (let tick = 0; tick < 60 * 40 && g.phase !== "over"; tick++) {
+      if (tick % 12 === 0) {
+        for (const seat of [0, 1, 2]) {
+          const roll = r();
+          if (roll < 0.2) g.handle(seat, { t: "move", dir: r() < 0.5 ? -1 : 1 });
+          else if (roll < 0.3) g.handle(seat, { t: "aim", angle: -Math.PI * r() });
+          else if (roll < 0.35) g.handle(seat, { t: "weapon", id: WEAPON_ORDER[Math.floor(r() * 4)] });
+          else if (roll < 0.5) g.handle(seat, { t: "fire", power: r() });
+        }
+      }
+      g.step();
+      if (tick % 60 === 0) trace.push(JSON.stringify(g.snapshot()));
+    }
+    return trace;
+  };
+  for (const seed of [3, 11]) expect(play(seed)).toEqual(play(seed));
+  expect(play(3)).not.toEqual(play(11));
+}, 60000);

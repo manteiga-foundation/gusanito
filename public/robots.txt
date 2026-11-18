@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://gusanito.manteiga.org/sitemap.xml

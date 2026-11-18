@@ -471,8 +471,6 @@ class App {
       row.dataset.team = String(t);
       row.style.setProperty("--tone", TEAM[t]);
       row.innerHTML = `<span class="rank"></span><span class="crown">${ICONS.crown}</span><span class="team-name"></span><span class="team-total">300</span><span class="pips"></span>`;
-      row.querySelector(".crown")!.remove();
-      row.querySelector(".rank")!.innerHTML = `<span class="crown">${ICONS.crown}</span><span class="n"></span>`;
       row.querySelector(".team-name")!.textContent = t === this.seat ? `${name} (you)` : name;
       board.appendChild(row);
       const seg = document.createElement("i");
@@ -491,7 +489,7 @@ class App {
       row.style.order = String(rank);
       row.classList.toggle("leading", st.leader === team);
       row.classList.toggle("out", st.alive[team] === 0);
-      row.querySelector(".n")!.textContent = String(rank + 1);
+      row.querySelector(".rank")!.textContent = String(rank + 1);
       const total = row.querySelector(".team-total")!;
       if (total.textContent !== String(st.hp[team])) total.textContent = String(st.hp[team]);
       const pips = s.worms.filter((w) => w.team === team).map((w) => `<i class="pip${w.alive ? " alive" : ""}"></i>`).join("");

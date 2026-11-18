@@ -428,6 +428,24 @@ test("three phones play one match: three teams, three colours, one board", async
   expect(new Set(colors).size).toBe(3);
   await a.waitForTimeout(3500);
   await a.screenshot({ path: `${SHOTS}/game-three.png` });
+  // with a short-named leader wearing the crown, no name on the board is cut off
+  await a.evaluate(() => {
+    const w = (window as any).__wriggle;
+    const s = structuredClone(w.snapshot());
+    for (const worm of s.worms) if (worm.team !== 1) worm.hp = Math.min(worm.hp, 60);
+    w.preview(s);
+  });
+  await a.waitForFunction(() => document.querySelector('#board .row.leading[data-team="1"]') !== null);
+  const clipped = await a.$$eval("#board .team-name", (els) =>
+    els.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => `${e.textContent} ${e.scrollWidth}>${e.clientWidth}`),
+  );
+  expect(clipped).toEqual([]);
+  // the leader wears a visible crown where the other rows show their rank
+  const crown = await a.locator('#board .row.leading .crown').boundingBox();
+  expect(crown?.width ?? 0).toBeGreaterThan(8);
+  const rank = await a.locator('#board .row:not(.leading) .rank').first().boundingBox();
+  expect(Math.abs(crown!.x + crown!.width / 2 - (rank!.x + rank!.width / 2))).toBeLessThan(2);
+  await a.screenshot({ path: `${SHOTS}/board-leader.png` });
   expect(errors).toEqual([]);
   for (const p of [a, b, c]) await p.context().close();
 }, 60000);
